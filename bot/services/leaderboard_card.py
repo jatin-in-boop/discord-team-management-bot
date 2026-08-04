@@ -129,7 +129,11 @@ async def render_top_five_card(
     violet = (139, 124, 246)
     gold = (247, 193, 73)
 
-    height = 1510 if viewer_id else 1340
+    # Keep the public and personal versions on the same canvas.  The public
+    # card still needs room for the full Pulse Path; shortening it caused the
+    # bottom milestone rail to overlap the current "New Signal" label when
+    # Discord scaled the attachment down on mobile.
+    height = 1510
     image = Image.new("RGB", (CARD_WIDTH, height), bg)
     glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
     glow_draw = ImageDraw.Draw(glow)
@@ -230,11 +234,13 @@ async def render_top_five_card(
         current_level, current_xp, needed = 1, 0, 1
         path_band = bands[0].get("name", "New Signal") if bands else "New Signal"
 
-    _rounded(draw, (70, path_top, CARD_WIDTH - 70, height - 60), panel_2, 28, outline=(48, 67, 96), width=2)
+    path_bottom = height - 60
+    _rounded(draw, (70, path_top, CARD_WIDTH - 70, path_bottom), panel_2, 28, outline=(48, 67, 96), width=2)
     draw.text((105, path_top + 34), path_title, font=label, fill=violet)
-    draw.text((105, path_top + 80), path_band, font=hero, fill=ink)
-    draw.text((CARD_WIDTH - 105, path_top + 86), f"LEVEL {current_level}", font=value, fill=gold, anchor="ra")
-    bar_x, bar_y, bar_w, bar_h = 105, path_top + 165, CARD_WIDTH - 210, 28
+    draw.text((105, path_top + 78), "CURRENT SIGNAL", font=tiny, fill=muted)
+    draw.text((105, path_top + 108), path_band.upper(), font=hero, fill=ink)
+    draw.text((CARD_WIDTH - 105, path_top + 115), f"LEVEL {current_level}", font=value, fill=gold, anchor="ra")
+    bar_x, bar_y, bar_w, bar_h = 105, path_top + 190, CARD_WIDTH - 210, 28
     _rounded(draw, (bar_x, bar_y, bar_x + bar_w, bar_y + bar_h), (11, 18, 32), 14)
     progress = min(1.0, current_xp / max(1, needed))
     if progress:
@@ -245,27 +251,44 @@ async def render_top_five_card(
     milestones = [band for band in bands if int(band.get("max", 0)) >= current_level][:4]
     if not milestones:
         milestones = bands[:4]
-    # Keep both milestone labels comfortably inside the rounded panel when
-    # Discord scales the image down on mobile.
-    step_y = height - 225
-    draw.text((105, step_y - 48), "MILESTONES", font=tiny, fill=muted)
-    step_width = (CARD_WIDTH - 260) // max(1, len(milestones))
+    # The rail is a separate row below the progress readout.  Keep it
+    # relative to the path panel rather than anchoring it to the overall
+    # image height, so both public and personal cards remain stable.
+    rail_title_y = bar_y + 112
+    step_y = rail_title_y + 54
+    draw.text((105, rail_title_y), "NEXT SIGNALS", font=tiny, fill=muted)
+    rail_left, rail_right = 155, CARD_WIDTH - 155
+    rail_span = max(1, len(milestones) - 1)
     for index, milestone in enumerate(milestones):
-        x = 130 + index * step_width
+        x = (
+            (rail_left + rail_right) // 2
+            if len(milestones) == 1
+            else rail_left + round(index * (rail_right - rail_left) / rail_span)
+        )
         color = _rgb(milestone.get("color"), teal)
         draw.ellipse((x - 13, step_y - 13, x + 13, step_y + 13), fill=color)
         if index < len(milestones) - 1:
-            draw.line((x + 16, step_y, x + step_width - 16, step_y), fill=(71, 89, 119), width=4)
+            next_x = (
+                (rail_left + rail_right) // 2
+                if len(milestones) == 1
+                else rail_left + round((index + 1) * (rail_right - rail_left) / rail_span)
+            )
+            draw.line((x + 16, step_y, next_x - 16, step_y), fill=(71, 89, 119), width=4)
         draw.text(
             (x, step_y + 28),
             f"L{milestone.get('min', 1)}",
-            font=tiny,
+            font=label,
             fill=ink,
             anchor="ma",
         )
         draw.text(
             (x, step_y + 55),
-            _fit_text(draw, milestone.get("name", "Signal"), tiny, step_width - 20),
+            _fit_text(
+                draw,
+                milestone.get("name", "Signal").upper(),
+                tiny,
+                max(120, (rail_right - rail_left) // max(1, rail_span) - 24),
+            ),
             font=tiny,
             fill=muted,
             anchor="ma",
