@@ -16,18 +16,23 @@ class TeamDeleteSelectionView(ui.View):
         self.bot = bot
         self.guild = guild
         self.executor = executor
-        self.add_item(TeamDeleteSelect(bot, guild, executor))
+        self.add_item(TeamDeleteSelect(bot, guild, executor, options=[]))
+
+    @classmethod
+    async def create(cls, bot, guild: discord.Guild, executor: discord.Member):
+        view = cls(bot, guild, executor)
+        await view.children[0].load_teams()
+        return view
 
 
 class TeamDeleteSelect(ui.Select):
-    def __init__(self, bot, guild, executor):
-        super().__init__(placeholder="Select a team to delete...", min_values=1, max_values=1)
+    def __init__(self, bot, guild, executor, options):
+        super().__init__(placeholder="Select a team to delete...", min_values=1, max_values=1, options=options)
         self.bot = bot
         self.guild = guild
         self.executor = executor
-        self._load_teams()
 
-    async def _load_teams(self):
+    async def load_teams(self):
         async with get_db_session() as session:
             result = await session.execute(
                 select(Team).where(Team.guild_id == self.guild.id).order_by(Team.team_number)
@@ -35,7 +40,7 @@ class TeamDeleteSelect(ui.Select):
             teams = result.scalars().all()
             options = [
                 discord.SelectOption(label=team.display_name, value=str(team.id), description=f"Team #{team.team_number}")
-                for team in teams
+                for team in teams[:25]
             ]
             self.options = options or [discord.SelectOption(label="No teams", value="none")]
 

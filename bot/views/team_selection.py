@@ -19,11 +19,17 @@ class TeamSelectionView(ui.View):
         self.bot = bot
         self.guild = guild
         self.executor = executor
-        self.add_item(TeamSelect(bot, guild, executor))
+        self.add_item(TeamSelect(bot, guild, executor, options=[]))
+
+    @classmethod
+    async def create(cls, bot, guild: discord.Guild, executor: discord.Member):
+        view = cls(bot, guild, executor)
+        await view.children[0].load_teams()
+        return view
 
 
 class TeamSelect(ui.Select):
-    def __init__(self, bot, guild: discord.Guild, executor: discord.Member):
+    def __init__(self, bot, guild: discord.Guild, executor: discord.Member, options):
         self.bot = bot
         self.guild = guild
         self.executor = executor
@@ -32,11 +38,10 @@ class TeamSelect(ui.Select):
             placeholder="Select a team...",
             min_values=1,
             max_values=1,
-            options=[]
+            options=options
         )
-        self._load_teams()
 
-    async def _load_teams(self):
+    async def load_teams(self):
         async with get_db_session() as session:
             result = await session.execute(
                 select(Team).where(Team.guild_id == self.guild.id).order_by(Team.team_number)

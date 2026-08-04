@@ -57,9 +57,17 @@ class ManagementPanelView(discord.ui.View):
             )
             return
 
-        view = TeamSelectionView(self.bot, interaction.guild, interaction.user)
-        embed = EmbedBuilder.info("Select Team", "Choose a team to manage its players.")
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            view = await TeamSelectionView.create(self.bot, interaction.guild, interaction.user)
+            embed = EmbedBuilder.info("Select Team", "Choose a team to manage its players.")
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        except Exception as e:
+            logger.error("management_panel.manage_players_failed", error=str(e))
+            await interaction.followup.send(
+                embed=EmbedBuilder.error("Error", "Unable to load teams. Please try again."),
+                ephemeral=True
+            )
 
     @discord.ui.button(label="✏ Edit Team", style=discord.ButtonStyle.secondary, custom_id="edit_team")
     async def edit_team(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -72,9 +80,17 @@ class ManagementPanelView(discord.ui.View):
             )
             return
 
-        view = TeamEditSelectionView(self.bot, interaction.guild, interaction.user)
-        embed = EmbedBuilder.info("Select Team", "Choose a team to edit.")
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            view = await TeamEditSelectionView.create(self.bot, interaction.guild, interaction.user)
+            embed = EmbedBuilder.info("Select Team", "Choose a team to edit.")
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        except Exception as e:
+            logger.error("management_panel.edit_team_failed", error=str(e))
+            await interaction.followup.send(
+                embed=EmbedBuilder.error("Error", "Unable to load teams. Please try again."),
+                ephemeral=True
+            )
 
     @discord.ui.button(label="🗑 Delete Team", style=discord.ButtonStyle.danger, custom_id="delete_team")
     async def delete_team(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -87,6 +103,14 @@ class ManagementPanelView(discord.ui.View):
             )
             return
 
-        view = TeamDeleteSelectionView(self.bot, interaction.guild, interaction.user)
-        embed = EmbedBuilder.warning("Select Team to Delete", "⚠️ This action is permanent. Choose carefully.")
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            view = await TeamDeleteSelectionView.create(self.bot, interaction.guild, interaction.user)
+            embed = EmbedBuilder.warning("Select Team to Delete", "⚠️ This action is permanent. Choose carefully.")
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        except Exception as e:
+            logger.error("management_panel.delete_team_failed", error=str(e))
+            await interaction.followup.send(
+                embed=EmbedBuilder.error("Error", "Unable to load teams. Please try again."),
+                ephemeral=True
+            )
