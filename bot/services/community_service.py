@@ -27,6 +27,58 @@ logger = get_logger(__name__)
 
 WELCOME_DEFAULT = {
     "style": "embed",
+    "title": "WELCOME, {member_name}",
+    "description": (
+        "Your entry into **{server}** is confirmed.\n\n"
+        "╭─ **YOUR FIRST MOVES**\n"
+        "│ `01` Find your people and choose your spaces\n"
+        "│ `02` Read the room before you make your mark\n"
+        "│ `03` Bring one good idea into the conversation\n"
+        "╰─ *There is no spectator mode here.*"
+    ),
+    "footer": "ARRIVAL PROTOCOL  •  Make the room better",
+    "thumbnail": True,
+    "mention": True,
+    "banner_url": "",
+}
+
+GOODBYE_DEFAULT = {
+    "style": "embed",
+    "title": "DEPARTURE LOG  ·  {member_name}",
+    "description": (
+        "**{member_name}** has closed their chapter in **{server}**.\n\n"
+        "╭─ **THE ROOM REMEMBERS**\n"
+        "│ Conversations continue.\n"
+        "│ The imprint stays.\n"
+        "╰─ *Until the paths cross again.*"
+    ),
+    "footer": "DEPARTURE LOG  •  The story continues",
+    "thumbnail": False,
+    "mention": False,
+    "banner_url": "",
+}
+
+LEGACY_WELCOME_DEFAULT = {
+    "style": "plain",
+    "title": "Welcome to {server}",
+    "description": (
+        "Welcome {member} to {server}.\n"
+        "Please take a moment to choose your roles below and review the server guidelines."
+    ),
+    "footer": "",
+    "thumbnail": True,
+}
+
+LEGACY_GOODBYE_DEFAULT = {
+    "style": "plain",
+    "title": "",
+    "description": "{member_name} has left {server}.\nWe wish them all the best.",
+    "footer": "",
+    "thumbnail": False,
+}
+
+PREMIUM_WELCOME_DEFAULT = {
+    "style": "embed",
     "title": "A NEW SIGNAL HAS ARRIVED",
     "description": (
         "{member_name} has entered {server}.\n\n"
@@ -38,7 +90,7 @@ WELCOME_DEFAULT = {
     "mention": True,
 }
 
-GOODBYE_DEFAULT = {
+PREMIUM_GOODBYE_DEFAULT = {
     "style": "embed",
     "title": "A SIGNAL HAS LEFT THE CONSTELLATION",
     "description": (
@@ -87,7 +139,7 @@ def departure_snapshot(member: discord.Member) -> Any:
         id=member.id,
         name=member.name,
         display_name=member.display_name,
-        mention=f"<@{member.id}>",
+        mention="",
         joined_at=member.joined_at,
         created_at=member.created_at,
         left_at=datetime.utcnow(),
@@ -112,6 +164,27 @@ def render_template(template: str, guild: discord.Guild, member: Any, kind: str)
     )
 
 
+def _upgrade_saved_default(
+    config: dict[str, Any] | None, kind: str
+) -> tuple[dict[str, Any], bool]:
+    current = dict(config or {})
+    legacy = LEGACY_WELCOME_DEFAULT if kind == "welcome" else LEGACY_GOODBYE_DEFAULT
+    prior_premium = (
+        PREMIUM_WELCOME_DEFAULT if kind == "welcome" else PREMIUM_GOODBYE_DEFAULT
+    )
+    replacement = WELCOME_DEFAULT if kind == "welcome" else GOODBYE_DEFAULT
+    if all(current.get(key) == value for key, value in legacy.items()):
+        return dict(replacement), True
+    if all(current.get(key) == value for key, value in prior_premium.items()):
+        return dict(replacement), True
+    changed = False
+    for key, value in replacement.items():
+        if key not in current:
+            current[key] = value
+            changed = True
+    return current, changed
+
+
 def build_config_embed(
     config: dict[str, Any],
     guild: discord.Guild,
@@ -120,12 +193,11 @@ def build_config_embed(
     *,
     test: bool = False,
 ) -> discord.Embed:
-    defaults = WELCOME_DEFAULT if kind == "welcome" else GOODBYE_DEFAULT
-    merged = {**defaults, **config}
+    merged, _ = _upgrade_saved_default(config, kind)
     title = render_template(merged.get("title", ""), guild, member, kind)
     description = render_template(merged.get("description", ""), guild, member, kind)
     is_welcome = kind == "welcome"
-    accent = 0xD6A84F if is_welcome else 0x7F8EA8
+    accent = 0x2DD4A8 if is_welcome else 0x8B7CF6
     embed = discord.Embed(
         title=title or None,
         description=description,
@@ -133,7 +205,8 @@ def build_config_embed(
         timestamp=datetime.utcnow(),
     )
     author = {
-        "name": f"{guild.name}  ·  {'NEW ARRIVAL' if is_welcome else 'FAREWELL'}"
+        "name": f"{guild.name.upper()}  //  "
+        f"{'ARRIVAL PROTOCOL' if is_welcome else 'DEPARTURE LOG'}"
     }
     if guild.icon:
         author["icon_url"] = guild.icon.url
@@ -145,22 +218,35 @@ def build_config_embed(
         embed.set_footer(text=f"TEST MESSAGE  •  {footer}" if footer else "TEST MESSAGE")
     if merged.get("thumbnail") and getattr(member, "display_avatar", None):
         embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="MEMBER", value=getattr(member, "mention", "New member"), inline=True)
+    banner_url = (merged.get("banner_url") or "").strip()
+    if not banner_url and getattr(guild, "banner", None):
+        banner_url = guild.banner.url
+    if banner_url.startswith(("http://", "https://")):
+        embed.set_image(url=banner_url)
     embed.add_field(
-        name="COMMUNITY SIZE",
+        name="IDENTITY",
+        value=(
+            getattr(member, "mention", "New member")
+            if is_welcome
+            else getattr(member, "display_name", None) or getattr(member, "name", "Former member")
+        ),
+        inline=True,
+    )
+    embed.add_field(
+        name="ROSTER",
         value=f"{guild.member_count or len(guild.members):,} members",
         inline=True,
     )
     if is_welcome:
         embed.add_field(
-            name="FIRST SIGNAL",
-            value="Choose your roles, find your people, and make the room yours.",
+            name="STATUS",
+            value="`ENTRY CONFIRMED`",
             inline=False,
         )
     else:
         embed.add_field(
-            name="FINAL SIGNAL",
-            value="Thank you for being part of the story.",
+            name="STATUS",
+            value="`CHAPTER CLOSED`",
             inline=False,
         )
     return embed
@@ -175,6 +261,18 @@ class CommunityService:
             )
             settings = result.scalar_one_or_none()
             if settings:
+                welcome_config, welcome_changed = _upgrade_saved_default(
+                    settings.welcome_message_config, "welcome"
+                )
+                goodbye_config, goodbye_changed = _upgrade_saved_default(
+                    settings.goodbye_message_config, "goodbye"
+                )
+                if welcome_changed:
+                    settings.welcome_message_config = welcome_config
+                if goodbye_changed:
+                    settings.goodbye_message_config = goodbye_config
+                if welcome_changed or goodbye_changed:
+                    await session.commit()
                 return settings
             settings = CommunitySettings(
                 guild_id=guild.id,
@@ -194,6 +292,9 @@ class CommunityService:
         channel_id: int,
         config: dict[str, Any],
     ) -> tuple[bool, str]:
+        banner_url = str(config.get("banner_url", "") or "").strip()
+        if banner_url and not banner_url.startswith(("http://", "https://")):
+            return False, "Banner image URL must start with `https://` or `http://`."
         errors = validate_template(config.get("title", ""), kind)
         errors.extend(validate_template(config.get("description", ""), kind))
         errors.extend(validate_template(config.get("footer", ""), kind))
@@ -317,6 +418,7 @@ class CommunityService:
                 if kind == "welcome"
                 else settings.goodbye_message_config
             ) or (dict(WELCOME_DEFAULT) if kind == "welcome" else dict(GOODBYE_DEFAULT))
+            config, _ = _upgrade_saved_default(config, kind)
         if not enabled and not test:
             return False, f"{kind.title()} messages are disabled."
         channel = guild.get_channel(channel_id) if channel_id else None
@@ -324,11 +426,23 @@ class CommunityService:
             await CommunityService.mark_status(guild.id, kind, "Destination channel is missing.")
             return False, "The configured destination channel is missing or unavailable."
         try:
-            content = render_template(config.get("description", ""), guild, member, kind)
+            member_name = getattr(member, "display_name", None) or getattr(member, "name", "Member")
+            mention = getattr(member, "mention", "") if kind == "welcome" else ""
+            description = render_template(
+                config.get("description", ""), guild, member, kind
+            )
+            if kind == "welcome":
+                content = (
+                    f"{mention}  **entry confirmed**\n"
+                    f"`{guild.name.upper()} // ARRIVAL PROTOCOL COMPLETE`"
+                    if config.get("mention", True)
+                    else f"**entry confirmed**\n`{guild.name.upper()} // ARRIVAL PROTOCOL COMPLETE`"
+                )
+            else:
+                content = f"**{member_name}**  has left the room."
             if config.get("style") == "embed":
-                mention = getattr(member, "mention", "")
                 await channel.send(
-                    content=mention if config.get("mention", True) else None,
+                    content=content,
                     embed=build_config_embed(config, guild, member, kind, test=test),
                     allowed_mentions=discord.AllowedMentions(
                         users=True, roles=False, everyone=False
@@ -337,7 +451,7 @@ class CommunityService:
             else:
                 prefix = "[TEST] " if test else ""
                 title = render_template(config.get("title", ""), guild, member, kind)
-                mention = getattr(member, "mention", "")
+                content = description
                 if title:
                     content = f"**{prefix}{title}**\n{content}"
                 elif prefix:

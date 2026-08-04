@@ -136,12 +136,22 @@ class MessageSettingsView(ui.View):
             else settings.goodbye_message_config
         )
         member = interaction.user
-        embed = EmbedBuilder.info(
-            f"{self.kind.title()} Preview",
-            "This is a private preview using your account as the sample member.",
+        preview_content = (
+            f"{member.mention}  **entry confirmed**\n"
+            f"`{self.guild.name.upper()} // ARRIVAL PROTOCOL COMPLETE`"
+            if self.kind == "welcome"
+            else f"**{member.display_name}**  has left the room."
         )
-        embed.add_field(name="Configured text", value=config.get("description", "Not configured")[:1024])
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        from bot.services.community_service import build_config_embed
+
+        await interaction.response.send_message(
+            content=preview_content,
+            embed=build_config_embed(config, self.guild, member, self.kind, test=True),
+            allowed_mentions=discord.AllowedMentions(
+                users=True, roles=False, everyone=False
+            ),
+            ephemeral=True,
+        )
 
     @ui.button(label="🔘 Enable / Disable", style=discord.ButtonStyle.success)
     async def toggle(self, interaction: discord.Interaction, button: ui.Button):
@@ -278,11 +288,18 @@ class MessageConfigModal(ui.Modal):
             required=False,
             max_length=2048,
         )
+        self.banner_input = ui.TextInput(
+            label="Banner image URL (optional)",
+            default=config.get("banner_url", ""),
+            required=False,
+            max_length=512,
+        )
         for item in (
             self.title_input,
             self.description_input,
             self.style_input,
             self.footer_input,
+            self.banner_input,
         ):
             self.add_item(item)
 
@@ -311,7 +328,8 @@ class MessageConfigModal(ui.Modal):
             "description": self.description_input.value.strip(),
             "footer": self.footer_input.value.strip(),
             "thumbnail": self.kind == "welcome",
-            "mention": True,
+            "mention": self.kind == "welcome",
+            "banner_url": self.banner_input.value.strip(),
         }
         ok, message = await CommunityService.save_message_config(
             self.guild, self.executor, self.kind, channel_id, config
