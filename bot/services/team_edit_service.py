@@ -70,7 +70,7 @@ class TeamEditService:
                     guild_id=guild.id,
                     executor_id=executor.id,
                     action="TEAM_EDITED",
-                    audit_metadata={
+                    metadata={
                         "team_id": team.id,
                         "edit_type": edit_type,
                         "old_value": old_number if edit_type == "number" else old_sp,
@@ -159,7 +159,7 @@ class TeamEditService:
                 guild_id=guild.id,
                 executor_id=executor.id,
                 action="TEAM_SYNCHRONIZED",
-                audit_metadata={"team_id": team.id, "changes": changes}
+                metadata={"team_id": team.id, "changes": changes}
             )
 
             msg = "No issues found." if not changes else "Repaired: " + ", ".join(changes)
