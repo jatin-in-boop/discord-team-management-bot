@@ -114,3 +114,24 @@ class ManagementPanelView(discord.ui.View):
                 embed=EmbedBuilder.error("Error", "Unable to load teams. Please try again."),
                 ephemeral=True
             )
+
+    @discord.ui.button(
+        label="✨ Community Features",
+        style=discord.ButtonStyle.primary,
+        custom_id="community_features",
+        row=2,
+    )
+    async def community_features(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from bot.views.community_features import CommunityFeaturesView, community_status_embed
+
+        if not interaction.guild:
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error("Error", "This action can only be performed in a server."),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            embed=await community_status_embed(interaction.guild),
+            view=CommunityFeaturesView(interaction.client),
+            ephemeral=True,
+        )

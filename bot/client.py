@@ -7,6 +7,8 @@ from bot.services.guild_setup import GuildSetupService
 from bot.services.panel_restoration import PanelRestorationService
 from bot.services.permission_service import PermissionService
 from bot.services.team_creation import TeamCreationService
+from bot.services.reaction_role_service import ReactionRoleService
+from bot.services.audit_service import AuditService
 from bot.views.management_panel import ManagementPanelView
 
 logger = get_logger(__name__)
@@ -29,8 +31,10 @@ class TeamManagementBot(commands.Bot):
         self.setup_service = GuildSetupService(self)
         self.restoration_service = PanelRestorationService(self)
         self.team_creation_service = TeamCreationService(self)
+        self.reaction_role_service = ReactionRoleService(self)
         self.permission_service = PermissionService()
         self.persistent_views_registered = False
+        self.community_views_restored = False
 
     async def setup_hook(self):
         logger.info("bot.startup.begin")
@@ -65,6 +69,10 @@ class TeamManagementBot(commands.Bot):
             await self.restoration_service.restore_guild_panel(guild)
             repaired = await self.team_creation_service.repair_guild_permissions(guild)
             logger.info("team.permissions_repaired", guild_id=guild.id, resources=repaired)
+        if not self.community_views_restored:
+            restored = await self.reaction_role_service.restore_views()
+            self.community_views_restored = True
+            logger.info("community.reaction_views_restored", count=restored)
 
         logger.info("bot.startup.recovery_complete")
 
@@ -74,6 +82,51 @@ class TeamManagementBot(commands.Bot):
 
     async def on_guild_remove(self, guild: discord.Guild):
         logger.info("guild.removed", guild_id=guild.id)
+
+    async def on_member_join(self, member: discord.Member):
+        from bot.services.community_service import CommunityService
+
+        event_key = f"join:{member.guild.id}:{member.id}:{member.joined_at.isoformat() if member.joined_at else 'unknown'}"
+        if await CommunityService.event_already_logged(member.guild.id, "WELCOME_SENT", event_key):
+            return
+        ok, message = await CommunityService.send_configured_message(
+            member.guild, member, "welcome"
+        )
+        if ok:
+            await AuditService.log_action(
+                member.guild.id,
+                self.user.id if self.user else 0,
+                "WELCOME_SENT",
+                {"event_key": event_key, "member_id": member.id},
+            )
+        else:
+            logger.info("community.welcome_skipped", guild_id=member.guild.id, reason=message)
+
+    async def on_member_remove(self, member: discord.Member):
+        from bot.services.community_service import CommunityService, departure_snapshot
+
+        event_key = f"leave:{member.guild.id}:{member.id}:{member.joined_at.isoformat() if member.joined_at else 'unknown'}"
+        if await CommunityService.event_already_logged(member.guild.id, "GOODBYE_SENT", event_key):
+            return
+        snapshot = departure_snapshot(member)
+        ok, message = await CommunityService.send_configured_message(
+            member.guild, snapshot, "goodbye"
+        )
+        if ok:
+            await AuditService.log_action(
+                member.guild.id,
+                self.user.id if self.user else 0,
+                "GOODBYE_SENT",
+                {"event_key": event_key, "member_id": member.id},
+            )
+        else:
+            logger.info("community.goodbye_skipped", guild_id=member.guild.id, reason=message)
+
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        await self.reaction_role_service.handle_reaction(payload, adding=True)
+
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        await self.reaction_role_service.handle_reaction(payload, adding=False)
 
     async def close(self):
         logger.info("bot.shutdown.begin")

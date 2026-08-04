@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from enum import Enum
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 class Environment(str, Enum):
@@ -54,8 +55,19 @@ class Settings(BaseSettings):
         if not value:
             raise ValueError("SUPABASE_DB_URL or DATABASE_URL must be configured")
         if value.startswith("postgresql://"):
-            return value.replace("postgresql://", "postgresql+asyncpg://", 1)
-        return value
+            value = value.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+        # PostgreSQL providers commonly expose libpq's `sslmode` query option.
+        # asyncpg expects the equivalent option as `ssl`; leaving `sslmode` in
+        # the URL causes SQLAlchemy startup/migrations to fail before connecting.
+        parsed = urlsplit(value)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        sslmode = query.pop("sslmode", None)
+        if sslmode and "ssl" not in query:
+            query["ssl"] = sslmode
+        return urlunsplit(
+            (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
+        )
 
 
 def get_settings() -> Settings:
