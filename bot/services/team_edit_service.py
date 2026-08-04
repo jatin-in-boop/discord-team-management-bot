@@ -5,6 +5,8 @@ from database.session import get_db_session
 from models.models import Team, Role as DbRole, Channel as DbChannel, RoleType, ChannelType
 from sqlalchemy import select
 from bot.services.audit_service import AuditService
+from bot.services.team_creation import TeamCreationService
+from bot.services.team_style import channel_name, role_colors
 
 logger = get_logger(__name__)
 
@@ -55,11 +57,12 @@ class TeamEditService:
                 team_role = guild.get_role(team.team_role_id)
                 leader_role = guild.get_role(team.team_leader_role_id)
                 category = guild.get_channel(team.category_id)
+                team_color, leader_color = role_colors(team.team_number)
 
                 if team_role:
-                    await team_role.edit(name=new_team_role_name)
+                    await team_role.edit(name=new_team_role_name, color=team_color)
                 if leader_role:
-                    await leader_role.edit(name=new_leader_role_name)
+                    await leader_role.edit(name=new_leader_role_name, color=leader_color)
                 if category:
                     await category.edit(name=new_display)
 
@@ -94,37 +97,62 @@ class TeamEditService:
             leader_role = guild.get_role(team.team_leader_role_id)
 
             if not team_role:
-                team_role = await guild.create_role(name=f"TEAM {team.team_number} {team.sp_range} SP")
+                team_role = await guild.create_role(
+                    name=f"TEAM {team.team_number} {team.sp_range} SP",
+                    color=role_colors(team.team_number)[0],
+                )
                 team.team_role_id = team_role.id
                 changes.append("Recreated Team Role")
 
             if not leader_role:
-                leader_role = await guild.create_role(name=f"TEAM LEADER • TEAM {team.team_number} {team.sp_range} SP")
+                leader_role = await guild.create_role(
+                    name=f"TEAM LEADER • TEAM {team.team_number} {team.sp_range} SP",
+                    color=role_colors(team.team_number)[1],
+                )
                 team.team_leader_role_id = leader_role.id
                 changes.append("Recreated Team Leader Role")
 
             # Validate category
             category = guild.get_channel(team.category_id)
+            permission_service = TeamCreationService(self.bot)
             if not category:
-                category = await guild.create_category_channel(team.display_name)
+                category = await guild.create_category_channel(
+                    team.display_name,
+                    overwrites=permission_service._category_overwrites(
+                        guild, team_role, leader_role
+                    ),
+                )
                 team.category_id = category.id
                 changes.append("Recreated Category")
+            else:
+                await category.edit(
+                    name=team.display_name,
+                    overwrites=permission_service._category_overwrites(
+                        guild, team_role, leader_role
+                    ),
+                )
 
             # Validate channels + repair permissions
             channel_map = {
-                ChannelType.PLAN: ("📢｜plan", team.plan_channel_id),
-                ChannelType.DISCUSSION: ("💬｜team-discussion", team.discussion_channel_id),
-                ChannelType.OPPONENTS: ("🆚｜opponents-ids-and-hangers", team.opponents_channel_id),
-                ChannelType.PLAYERS: ("👤｜player-ids-and-hangers", team.players_channel_id),
+                ChannelType.PLAN: ("plan", team.plan_channel_id),
+                ChannelType.DISCUSSION: ("discussion", team.discussion_channel_id),
+                ChannelType.OPPONENTS: ("opponents", team.opponents_channel_id),
+                ChannelType.PLAYERS: ("players", team.players_channel_id),
             }
 
             team_role = guild.get_role(team.team_role_id)
             leader_role = guild.get_role(team.team_leader_role_id)
 
-            for ch_type, (name, ch_id) in channel_map.items():
+            for ch_type, (channel_type, ch_id) in channel_map.items():
                 ch = guild.get_channel(ch_id)
                 if not ch:
-                    ch = await guild.create_text_channel(name, category=category)
+                    ch = await guild.create_text_channel(
+                        channel_name(channel_type),
+                        category=category,
+                        overwrites=permission_service._channel_overwrites(
+                            guild, team_role, leader_role, channel_type
+                        ),
+                    )
                     if ch_type == ChannelType.PLAN:
                         team.plan_channel_id = ch.id
                     elif ch_type == ChannelType.DISCUSSION:
@@ -133,25 +161,17 @@ class TeamEditService:
                         team.opponents_channel_id = ch.id
                     elif ch_type == ChannelType.PLAYERS:
                         team.players_channel_id = ch.id
-                    changes.append(f"Recreated {name}")
+                    changes.append(f"Recreated {channel_type} channel")
                     ch = guild.get_channel(ch.id)  # refresh
 
                 # Re-apply correct permissions
                 if ch and team_role and leader_role:
-                    overwrites = ch.overwrites
-                    if ch_type == ChannelType.PLAN:
-                        overwrites[team_role] = discord.PermissionOverwrite(view_channel=True, read_message_history=True, send_messages=False)
-                        overwrites[leader_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True)
-                    elif ch_type == ChannelType.DISCUSSION:
-                        overwrites[team_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True)
-                        overwrites[leader_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True)
-                    elif ch_type == ChannelType.OPPONENTS:
-                        overwrites[team_role] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
-                        overwrites[leader_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True)
-                    elif ch_type == ChannelType.PLAYERS:
-                        overwrites[team_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True)
-                        overwrites[leader_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True)
-                    await ch.edit(overwrites=overwrites)
+                    await ch.edit(
+                        name=channel_name(channel_type),
+                        overwrites=permission_service._channel_overwrites(
+                            guild, team_role, leader_role, channel_type
+                        ),
+                    )
 
             await session.commit()
 
