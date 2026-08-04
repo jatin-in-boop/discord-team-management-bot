@@ -1,7 +1,7 @@
 import discord
 from discord import ui
 from app_logging.logger import get_logger
-from database.engine import get_db_session
+from database.session import get_db_session
 from models.models import Team
 from sqlalchemy import select
 from bot.embeds.base import EmbedBuilder

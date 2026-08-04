@@ -55,7 +55,7 @@ class TeamCreationModal(ui.Modal, title="Create New Team"):
             if result.success:
                 # Open player selection immediately after creation (Phase 2 requirement)
                 from bot.views.player_management import AddPlayersView
-                from database.engine import get_db_session
+                from database.session import get_db_session
                 from models.models import Team
                 from sqlalchemy import select
 

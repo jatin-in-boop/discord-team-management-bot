@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, Any, Dict
 from app_logging.logger import get_logger
-from database.engine import get_db_session
+from database.session import get_db_session
 from models.models import AuditLog
 from sqlalchemy import select
 

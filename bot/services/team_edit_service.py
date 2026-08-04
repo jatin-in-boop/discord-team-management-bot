@@ -1,7 +1,7 @@
 import discord
 from dataclasses import dataclass
 from app_logging.logger import get_logger
-from database.engine import get_db_session
+from database.session import get_db_session
 from models.models import Team, Role as DbRole, Channel as DbChannel, RoleType, ChannelType
 from sqlalchemy import select
 from bot.services.audit_service import AuditService

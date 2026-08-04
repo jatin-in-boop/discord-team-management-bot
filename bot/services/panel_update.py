@@ -3,7 +3,7 @@ from typing import Optional
 from app_logging.logger import get_logger
 from bot.embeds.base import EmbedBuilder
 from bot.views.management_panel import ManagementPanelView
-from database.engine import get_db_session
+from database.session import get_db_session
 from models.models import GuildConfiguration
 from sqlalchemy import select
 

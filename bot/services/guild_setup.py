@@ -2,7 +2,7 @@ import discord
 from typing import Optional
 from config.settings import get_settings
 from app_logging.logger import get_logger
-from database.engine import get_db_session
+from database.session import get_db_session
 from models.models import Guild as DbGuild, GuildConfiguration
 from sqlalchemy import select
 

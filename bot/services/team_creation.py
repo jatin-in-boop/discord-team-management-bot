@@ -2,7 +2,7 @@ import discord
 from dataclasses import dataclass
 from typing import Optional, List
 from app_logging.logger import get_logger
-from database.engine import get_db_session
+from database.session import get_db_session
 from models.models import (
     Guild as DbGuild, Team, Role as DbRole, Channel as DbChannel,
     TeamMember, Player, RoleType, ChannelType, AuditLog
