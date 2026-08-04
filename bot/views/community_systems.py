@@ -353,15 +353,75 @@ async def pulse_profile_embed(
 async def leaderboard_embed(guild: discord.Guild, bot=None, viewer_id: int | None = None) -> discord.Embed:
     service = PulseService(bot)
     rows = await service.leaderboard(guild)
-    lines = ["**◈ GUILD PULSE · TOP 10**", f"Updated <t:{int(datetime.utcnow().timestamp())}:R>\n"]
-    for index, row in enumerate(rows, 1):
+    settings = await service.get_or_create_settings(guild)
+    bands = settings.band_config or []
+    brand = settings.brand_config or {}
+    accent = int(brand.get("color", 0xD6A84F))
+    embed = discord.Embed(
+        title="✦ THE CONSTELLATION",
+        description=(
+            "**GUILD PULSE · ALL-TIME SIGNAL**\n"
+            "The people shaping the room, ranked by momentum and presence."
+        ),
+        color=accent,
+        timestamp=datetime.utcnow(),
+    )
+    author = {"name": f"{settings.display_name or 'Guild Pulse'}  ·  LEADERBOARD"}
+    if guild.icon:
+        author["icon_url"] = guild.icon.url
+        embed.set_thumbnail(url=guild.icon.url)
+    embed.set_author(**author)
+
+    medals = ["✦", "✧", "◈"]
+    podium = []
+    for index, row in enumerate(rows[:3]):
         member = guild.get_member(row.member_id)
         name = member.display_name if member else f"Member {row.member_id}"
-        lines.append(f"`{index:>2}` **{name}** · Level {row.current_level} · {row.total_xp} XP")
+        band = band_for_level(row.current_level, bands) if bands else {}
+        podium.append(
+            f"{medals[index]} **{name}**\n"
+            f"Level **{row.current_level}**  ·  **{row.total_xp:,} XP**\n"
+            f"`{band.get('name', 'Signal')}`"
+        )
+    if podium:
+        embed.add_field(name="THE PODIUM", value="\n\n".join(podium), inline=False)
+
+    lines = []
+    for index, row in enumerate(rows[3:], 4):
+        member = guild.get_member(row.member_id)
+        name = member.display_name if member else f"Member {row.member_id}"
+        band = band_for_level(row.current_level, bands) if bands else {}
+        lines.append(
+            f"`{index:02}`  **{name}**  ·  L{row.current_level}  ·  "
+            f"{row.total_xp:,} XP  ·  {band.get('name', 'Signal')}"
+        )
+    if lines:
+        embed.add_field(name="THE ASCENT", value="\n".join(lines), inline=False)
+    elif not podium:
+        embed.add_field(
+            name="THE FIRST SIGNAL",
+            value="No members have entered the constellation yet.\nBe the first to make an impact.",
+            inline=False,
+        )
+
     if viewer_id:
-        profile = await service.profile(guild, guild.get_member(viewer_id) or discord.Object(viewer_id))
-        lines.append(f"\nYour position: **#{profile['rank']}** · Level {profile['level']}")
-    return EmbedBuilder.info("🏆 Leaderboard", "\n".join(lines))
+        viewer = guild.get_member(viewer_id)
+        if viewer:
+            profile = await service.profile(guild, viewer)
+            filled = round((profile["current"] / max(1, profile["needed"])) * 12)
+            progress = "▰" * min(12, filled) + "░" * max(0, 12 - filled)
+            embed.add_field(
+                name=f"YOUR SIGNAL  ·  RANK #{profile['rank']}",
+                value=(
+                    f"Level **{profile['level']}**  ·  **{profile['total']:,} XP**\n"
+                    f"{progress}  `{profile['current']:,}/{profile['needed']:,}` to next level"
+                ),
+                inline=False,
+            )
+    embed.set_footer(
+        text="Guild Pulse  •  Updated live  •  Every signal changes the room"
+    )
+    return embed
 
 
 class PulseMemberView(ui.View):

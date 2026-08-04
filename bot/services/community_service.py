@@ -26,22 +26,29 @@ from models.models import (
 logger = get_logger(__name__)
 
 WELCOME_DEFAULT = {
-    "style": "plain",
-    "title": "Welcome to {server}",
+    "style": "embed",
+    "title": "A NEW SIGNAL HAS ARRIVED",
     "description": (
-        "Welcome {member} to {server}.\n"
-        "Please take a moment to choose your roles below and review the server guidelines."
+        "{member_name} has entered {server}.\n\n"
+        "Every great community is shaped by the people who show up. "
+        "Your signal is now part of the constellation."
     ),
-    "footer": "",
+    "footer": "Welcome to the constellation",
     "thumbnail": True,
+    "mention": True,
 }
 
 GOODBYE_DEFAULT = {
-    "style": "plain",
-    "title": "",
-    "description": "{member_name} has left {server}.\nWe wish them all the best.",
-    "footer": "",
+    "style": "embed",
+    "title": "A SIGNAL HAS LEFT THE CONSTELLATION",
+    "description": (
+        "{member_name} has departed from {server}.\n\n"
+        "The room changes when a signal moves on. "
+        "Their place in the story remains."
+    ),
+    "footer": "The constellation remembers",
     "thumbnail": False,
+    "mention": True,
 }
 
 VARIABLES = {
@@ -77,9 +84,10 @@ def _values(guild: discord.Guild, member: Any, kind: str) -> dict[str, str]:
 
 def departure_snapshot(member: discord.Member) -> Any:
     return SimpleNamespace(
+        id=member.id,
         name=member.name,
         display_name=member.display_name,
-        mention="",
+        mention=f"<@{member.id}>",
         joined_at=member.joined_at,
         created_at=member.created_at,
         left_at=datetime.utcnow(),
@@ -112,21 +120,49 @@ def build_config_embed(
     *,
     test: bool = False,
 ) -> discord.Embed:
-    title = render_template(config.get("title", ""), guild, member, kind)
-    description = render_template(config.get("description", ""), guild, member, kind)
+    defaults = WELCOME_DEFAULT if kind == "welcome" else GOODBYE_DEFAULT
+    merged = {**defaults, **config}
+    title = render_template(merged.get("title", ""), guild, member, kind)
+    description = render_template(merged.get("description", ""), guild, member, kind)
+    is_welcome = kind == "welcome"
+    accent = 0xD6A84F if is_welcome else 0x7F8EA8
     embed = discord.Embed(
         title=title or None,
         description=description,
-        color=0x5865F2,
+        color=accent,
         timestamp=datetime.utcnow(),
     )
-    footer = render_template(config.get("footer", ""), guild, member, kind)
+    author = {
+        "name": f"{guild.name}  ·  {'NEW ARRIVAL' if is_welcome else 'FAREWELL'}"
+    }
+    if guild.icon:
+        author["icon_url"] = guild.icon.url
+    embed.set_author(**author)
+    footer = render_template(merged.get("footer", ""), guild, member, kind)
     if footer:
         embed.set_footer(text=footer)
     if test:
-        embed.set_author(name="TEST MESSAGE")
-    if config.get("thumbnail") and getattr(member, "display_avatar", None):
+        embed.set_footer(text=f"TEST MESSAGE  •  {footer}" if footer else "TEST MESSAGE")
+    if merged.get("thumbnail") and getattr(member, "display_avatar", None):
         embed.set_thumbnail(url=member.display_avatar.url)
+    embed.add_field(name="MEMBER", value=getattr(member, "mention", "New member"), inline=True)
+    embed.add_field(
+        name="COMMUNITY SIZE",
+        value=f"{guild.member_count or len(guild.members):,} members",
+        inline=True,
+    )
+    if is_welcome:
+        embed.add_field(
+            name="FIRST SIGNAL",
+            value="Choose your roles, find your people, and make the room yours.",
+            inline=False,
+        )
+    else:
+        embed.add_field(
+            name="FINAL SIGNAL",
+            value="Thank you for being part of the story.",
+            inline=False,
+        )
     return embed
 
 
@@ -290,15 +326,30 @@ class CommunityService:
         try:
             content = render_template(config.get("description", ""), guild, member, kind)
             if config.get("style") == "embed":
-                await channel.send(embed=build_config_embed(config, guild, member, kind, test=test))
+                mention = getattr(member, "mention", "")
+                await channel.send(
+                    content=mention if config.get("mention", True) else None,
+                    embed=build_config_embed(config, guild, member, kind, test=test),
+                    allowed_mentions=discord.AllowedMentions(
+                        users=True, roles=False, everyone=False
+                    ),
+                )
             else:
                 prefix = "[TEST] " if test else ""
                 title = render_template(config.get("title", ""), guild, member, kind)
+                mention = getattr(member, "mention", "")
                 if title:
                     content = f"**{prefix}{title}**\n{content}"
                 elif prefix:
                     content = f"**{prefix.rstrip()}**\n{content}"
-                await channel.send(content=content, allowed_mentions=discord.AllowedMentions(users=True))
+                if config.get("mention", True):
+                    content = f"{mention}\n{content}" if mention else content
+                await channel.send(
+                    content=content,
+                    allowed_mentions=discord.AllowedMentions(
+                        users=True, roles=False, everyone=False
+                    ),
+                )
             await CommunityService.mark_status(guild.id, kind, None)
             return True, "Message sent."
         except discord.Forbidden:

@@ -311,6 +311,7 @@ class MessageConfigModal(ui.Modal):
             "description": self.description_input.value.strip(),
             "footer": self.footer_input.value.strip(),
             "thumbnail": self.kind == "welcome",
+            "mention": True,
         }
         ok, message = await CommunityService.save_message_config(
             self.guild, self.executor, self.kind, channel_id, config

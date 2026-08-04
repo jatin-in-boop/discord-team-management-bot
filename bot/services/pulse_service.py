@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import hashlib
 from datetime import datetime, timedelta
@@ -173,6 +174,7 @@ class PulseService:
         *,
         reason: Optional[str] = None,
         source_reference: Optional[str] = None,
+        source_message: Optional[discord.Message] = None,
     ) -> tuple[bool, str, Optional[PulseMember]]:
         if amount == 0 or member.bot:
             return False, "XP award skipped.", None
@@ -234,7 +236,76 @@ class PulseService:
                 "PULSE_LEVEL_UP",
                 {"member_id": member.id, "from": old_level, "to": new_level},
             )
+            if new_level > old_level and source_message is not None:
+                await self._announce_level_up(
+                    source_message, member, old_level, new_level, settings
+                )
         return True, f"+{amount} XP awarded.", await self.get_member(guild.id, member.id)
+
+    async def _announce_level_up(
+        self,
+        source_message: discord.Message,
+        member: discord.Member,
+        old_level: int,
+        new_level: int,
+        settings: PulseSettings,
+    ) -> None:
+        band = band_for_level(new_level, settings.band_config or DEFAULT_BANDS)
+        accent = int(band.get("color", 0xF5C451))
+        embed = discord.Embed(
+            title="✦ SIGNAL ASCENDED",
+            description=(
+                f"**Level {new_level} unlocked**\n"
+                f"{band.get('name', 'New Signal')} is now part of your identity in this guild.\n\n"
+                f"Your progression moved from **Level {old_level}** to **Level {new_level}**."
+            ),
+            color=accent,
+            timestamp=datetime.utcnow(),
+        )
+        author = {"name": f"{settings.display_name or 'Guild Pulse'}  ·  MILESTONE"}
+        if source_message.guild.icon:
+            author["icon_url"] = source_message.guild.icon.url
+        embed.set_author(**author)
+        embed.set_thumbnail(url=member.display_avatar.url)
+        embed.add_field(
+            name="NEW BAND",
+            value=f"**{band.get('name', 'Signal')}**",
+            inline=True,
+        )
+        embed.add_field(
+            name="NEXT FRONTIER",
+            value=f"Level **{new_level + 1}**",
+            inline=True,
+        )
+        embed.set_footer(text="Guild Pulse  •  Keep shaping the room")
+        mentions = discord.AllowedMentions(
+            users=True, roles=False, everyone=False, replied_user=False
+        )
+        try:
+            await source_message.channel.send(
+                content=member.mention,
+                embed=embed,
+                allowed_mentions=mentions,
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            logger.warning(
+                "pulse.level_up_announcement_failed",
+                guild_id=source_message.guild.id,
+                member_id=member.id,
+            )
+        else:
+            asyncio.create_task(
+                self._delete_source_message_later(source_message),
+                name=f"pulse-delete-level-message-{source_message.id}",
+            )
+
+    @staticmethod
+    async def _delete_source_message_later(message: discord.Message) -> None:
+        await asyncio.sleep(20)
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return
 
     async def handle_message(self, message: discord.Message) -> None:
         if not message.guild or not isinstance(message.author, discord.Member) or message.author.bot:
@@ -288,6 +359,7 @@ class PulseService:
             message.guild, message.author, int(config.get("amount", 8)),
             XPSource.MESSAGE, f"message:{message.id}", source_reference=str(message.id),
             reason=f"fingerprint:{fingerprint}",
+            source_message=message,
         )
 
     async def handle_reaction(self, payload: discord.RawReactionActionEvent) -> None:
