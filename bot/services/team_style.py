@@ -6,18 +6,23 @@ from typing import Dict, Tuple
 import discord
 
 
-# Each team gets a stable color pair based on its team number. The second color
-# is a brighter companion for the Team Leader role.
+# Each team gets a stable color pair based on its team number. The first color
+# is the richer team color; the second is a brighter companion for the Team
+# Leader role. These are intentionally curated jewel tones rather than the
+# default Discord palette so the role list feels consistent and premium.
 TEAM_COLOR_PAIRS = (
-    (0x5865F2, 0x9B9EFF),  # blurple
-    (0x00AFF4, 0x66D7FF),  # blue
-    (0x1ABC9C, 0x5DE0C2),  # teal
-    (0x57F287, 0x8FF5A8),  # green
-    (0xFEE75C, 0xFFE99A),  # yellow
-    (0xE67E22, 0xFFAD5C),  # orange
-    (0xED4245, 0xF47779),  # red
-    (0xEB459E, 0xF47BBB),  # pink
-    (0x9B59B6, 0xC084D8),  # purple
+    (0x4F6BFF, 0xA7B7FF),  # royal blue
+    (0x159CC9, 0x82D9F5),  # ocean blue
+    (0x00A6A6, 0x67E4DC),  # teal
+    (0x2DBE73, 0x91E8AE),  # emerald
+    (0x84B82E, 0xD0ED76),  # lime
+    (0xD99A25, 0xFFE08A),  # gold
+    (0xF08C3A, 0xFFD09A),  # amber
+    (0xE4634F, 0xFFADA0),  # coral
+    (0xD9507F, 0xFFA2C0),  # rose
+    (0x925CDB, 0xD0A9FF),  # violet
+    (0x586BC9, 0xB1C0FF),  # indigo
+    (0x2E9FBC, 0x98E4EF),  # aqua
 )
 
 
@@ -25,6 +30,15 @@ def role_colors(team_number: int) -> Tuple[discord.Color, discord.Color]:
     """Return stable (team, team-leader) colors for a team number."""
     pair = TEAM_COLOR_PAIRS[(team_number - 1) % len(TEAM_COLOR_PAIRS)]
     return discord.Color(pair[0]), discord.Color(pair[1])
+
+
+def role_names(team_number: int, sp_range: str) -> Tuple[str, str]:
+    """Return readable, styled names for a team and its Team Leader role."""
+    team_role = f"✦ 𝐓𝐄𝐀𝐌 {team_number} · {sp_range} SP"
+    leader_role = (
+        f"♛ 𝐓𝐄𝐀𝐌 𝐋𝐄𝐀𝐃𝐄𝐑 · 𝐓𝐄𝐀𝐌 {team_number} · {sp_range} SP"
+    )
+    return team_role, leader_role
 
 
 def _italic_map() -> Dict[str, str]:

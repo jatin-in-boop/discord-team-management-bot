@@ -9,7 +9,7 @@ from models.models import (
 )
 from sqlalchemy import select
 from bot.services.audit_service import AuditService
-from bot.services.team_style import channel_name, role_colors
+from bot.services.team_style import channel_name, role_colors, role_names
 
 logger = get_logger(__name__)
 
@@ -49,8 +49,7 @@ class TeamCreationService:
 
             try:
                 # 1. Create Roles
-                team_role_name = f"TEAM {team_number} {sp_range} SP"
-                leader_role_name = f"TEAM LEADER • TEAM {team_number} {sp_range} SP"
+                team_role_name, leader_role_name = role_names(team_number, sp_range)
 
                 team_role = await guild.create_role(
                     name=team_role_name,
@@ -296,17 +295,20 @@ class TeamCreationService:
                 continue
 
             try:
+                team_role_name, leader_role_name = role_names(
+                    team.team_number, team.sp_range
+                )
                 team_color, leader_color = role_colors(team.team_number)
-                if team_role.name != f"TEAM {team.team_number} {team.sp_range} SP" or team_role.color != team_color:
+                if team_role.name != team_role_name or team_role.color != team_color:
                     await team_role.edit(
-                        name=f"TEAM {team.team_number} {team.sp_range} SP",
+                        name=team_role_name,
                         color=team_color,
                         reason="Team styling repair",
                     )
                     repaired += 1
-                if leader_role.name != f"TEAM LEADER • TEAM {team.team_number} {team.sp_range} SP" or leader_role.color != leader_color:
+                if leader_role.name != leader_role_name or leader_role.color != leader_color:
                     await leader_role.edit(
-                        name=f"TEAM LEADER • TEAM {team.team_number} {team.sp_range} SP",
+                        name=leader_role_name,
                         color=leader_color,
                         reason="Team styling repair",
                     )

@@ -6,7 +6,7 @@ from models.models import Team, Role as DbRole, Channel as DbChannel, RoleType, 
 from sqlalchemy import select
 from bot.services.audit_service import AuditService
 from bot.services.team_creation import TeamCreationService
-from bot.services.team_style import channel_name, role_colors
+from bot.services.team_style import channel_name, role_colors, role_names
 
 logger = get_logger(__name__)
 
@@ -50,8 +50,9 @@ class TeamEditService:
 
                 # Generate new names
                 new_display = f"TEAM {team.team_number} {team.sp_range} SP"
-                new_team_role_name = new_display
-                new_leader_role_name = f"TEAM LEADER • {new_display}"
+                new_team_role_name, new_leader_role_name = role_names(
+                    team.team_number, team.sp_range
+                )
 
                 # Rename Discord resources
                 team_role = guild.get_role(team.team_role_id)
@@ -97,16 +98,18 @@ class TeamEditService:
             leader_role = guild.get_role(team.team_leader_role_id)
 
             if not team_role:
+                team_role_name, _ = role_names(team.team_number, team.sp_range)
                 team_role = await guild.create_role(
-                    name=f"TEAM {team.team_number} {team.sp_range} SP",
+                    name=team_role_name,
                     color=role_colors(team.team_number)[0],
                 )
                 team.team_role_id = team_role.id
                 changes.append("Recreated Team Role")
 
             if not leader_role:
+                _, leader_role_name = role_names(team.team_number, team.sp_range)
                 leader_role = await guild.create_role(
-                    name=f"TEAM LEADER • TEAM {team.team_number} {team.sp_range} SP",
+                    name=leader_role_name,
                     color=role_colors(team.team_number)[1],
                 )
                 team.team_leader_role_id = leader_role.id
