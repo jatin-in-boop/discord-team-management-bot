@@ -1,1 +1,2 @@
 - [Railway deployment access](railway-deployment.md) — Railway API authentication works, but the available token currently has no accessible projects.
+- [Uploaded asset hygiene](uploaded-asset-hygiene.md) — inspect Git history before pushing; workspace uploads may be auto-committed even when meant only as visual references.
