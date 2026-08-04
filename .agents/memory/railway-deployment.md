@@ -3,8 +3,8 @@ name: Railway deployment access
 description: External Railway provisioning constraint for this project.
 ---
 
-The Railway API accepts the configured token, but project listing currently returns no accessible projects. Deployment cannot proceed until a Railway project/service target is created or the token is granted access to one.
+The Railway API accepts the configured token, but broad project listing currently returns no accessible projects even though the GitHub deployment integration can expose the linked project/service IDs. Deployment diagnostics may need to use the deployment metadata or linked service IDs.
 
 **Why:** Deploying without a known project target would risk creating or modifying paid infrastructure without an explicit workspace/project choice.
 
-**How to apply:** Before retrying Railway deployment, select or create the target Railway project, attach PostgreSQL, and configure the bot service with `DISCORD_TOKEN` and `DATABASE_URL`. Never record their values here.
+**How to apply:** Use the linked Railway project/service IDs from deployment metadata when available. Never record secret values here. Discord.py object APIs should be checked against the installed version; for AFK voice channels, use `guild.afk_channel` and compare its ID rather than relying on an `afk_channel_id` attribute.
