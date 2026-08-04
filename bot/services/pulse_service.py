@@ -487,7 +487,7 @@ class PulseService:
 
     async def refresh_leaderboard(self, guild: discord.Guild) -> bool:
         """Refresh the configured leaderboard message in place, if configured."""
-        from bot.views.community_systems import leaderboard_embed
+        from bot.views.community_systems import leaderboard_payload
 
         async with get_db_session() as session:
             settings = (
@@ -512,8 +512,10 @@ class PulseService:
         channel = guild.get_channel(channel_id)
         if not isinstance(channel, discord.TextChannel):
             return False
-        embed = await leaderboard_embed(guild, self.bot)
-        rendered = str(embed.to_dict())
+        embed, card_file = await leaderboard_payload(guild, self.bot)
+        rendered = str(embed.to_dict()) + "|" + "|".join(
+            f"{row.member_id}:{row.current_level}:{row.total_xp}" for row in await self.leaderboard(guild, limit=5)
+        ) + "|" + str(settings.brand_config) + "|" + str(settings.band_config)
         try:
             message = None
             if message_id:
@@ -534,11 +536,17 @@ class PulseService:
                             await session.commit()
                     return True
                 from bot.views.community_systems import PulseMemberView
-                await message.edit(embed=embed, view=PulseMemberView(self.bot, guild))
+                await message.edit(
+                    embed=embed,
+                    attachments=[card_file],
+                    view=PulseMemberView(self.bot, guild),
+                )
             else:
                 from bot.views.community_systems import PulseMemberView
                 message = await channel.send(
-                    embed=embed, view=PulseMemberView(self.bot, guild)
+                    embed=embed,
+                    file=card_file,
+                    view=PulseMemberView(self.bot, guild),
                 )
             async with get_db_session() as session:
                 current = (

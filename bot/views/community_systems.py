@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from datetime import datetime, timedelta
 
 import discord
@@ -8,6 +9,7 @@ from sqlalchemy import func, select
 
 from bot.embeds.base import EmbedBuilder
 from bot.services.giveaway_service import GiveawayService
+from bot.services.leaderboard_card import CARD_FILENAME, render_top_five_card
 from bot.services.permission_service import PermissionService
 from bot.services.pulse_service import PulseService, band_for_level
 from database.session import get_db_session
@@ -204,7 +206,10 @@ class PulseAdminView(ui.View):
     @ui.button(label="🏆 Leaderboard", style=discord.ButtonStyle.primary, row=2)
     async def leaderboard(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(
-            embed=await leaderboard_embed(self.guild, self.bot, interaction.user.id),
+            embed=(payload := await leaderboard_payload(
+                self.guild, self.bot, interaction.user.id
+            ))[0],
+            file=payload[1],
             view=PulseMemberView(self.bot, self.guild),
             ephemeral=True,
         )
@@ -350,18 +355,24 @@ async def pulse_profile_embed(
     )
 
 
-async def leaderboard_embed(guild: discord.Guild, bot=None, viewer_id: int | None = None) -> discord.Embed:
+async def leaderboard_payload(
+    guild: discord.Guild, bot=None, viewer_id: int | None = None
+) -> tuple[discord.Embed, discord.File]:
     service = PulseService(bot)
-    rows = await service.leaderboard(guild)
+    rows = await service.leaderboard(guild, limit=5)
     settings = await service.get_or_create_settings(guild)
-    bands = settings.band_config or []
     brand = settings.brand_config or {}
     accent = int(brand.get("color", 0xD6A84F))
+    viewer_profile = None
+    if viewer_id:
+        viewer = guild.get_member(viewer_id)
+        if viewer:
+            viewer_profile = await service.profile(guild, viewer)
     embed = discord.Embed(
-        title="✦ THE CONSTELLATION",
+        title="✦ PULSE ORBIT  ·  TOP FIVE",
         description=(
-            "**GUILD PULSE · ALL-TIME SIGNAL**\n"
-            "The people shaping the room, ranked by momentum and presence."
+            "**GUILD PULSE · SIGNAL INDEX**\n"
+            "A visual map of the five signals moving this server forward."
         ),
         color=accent,
         timestamp=datetime.utcnow(),
@@ -372,56 +383,21 @@ async def leaderboard_embed(guild: discord.Guild, bot=None, viewer_id: int | Non
         embed.set_thumbnail(url=guild.icon.url)
     embed.set_author(**author)
 
-    medals = ["✦", "✧", "◈"]
-    podium = []
-    for index, row in enumerate(rows[:3]):
-        member = guild.get_member(row.member_id)
-        name = member.display_name if member else f"Member {row.member_id}"
-        band = band_for_level(row.current_level, bands) if bands else {}
-        podium.append(
-            f"{medals[index]} **{name}**\n"
-            f"Level **{row.current_level}**  ·  **{row.total_xp:,} XP**\n"
-            f"`{band.get('name', 'Signal')}`"
-        )
-    if podium:
-        embed.add_field(name="THE PODIUM", value="\n\n".join(podium), inline=False)
-
-    lines = []
-    for index, row in enumerate(rows[3:], 4):
-        member = guild.get_member(row.member_id)
-        name = member.display_name if member else f"Member {row.member_id}"
-        band = band_for_level(row.current_level, bands) if bands else {}
-        lines.append(
-            f"`{index:02}`  **{name}**  ·  L{row.current_level}  ·  "
-            f"{row.total_xp:,} XP  ·  {band.get('name', 'Signal')}"
-        )
-    if lines:
-        embed.add_field(name="THE ASCENT", value="\n".join(lines), inline=False)
-    elif not podium:
-        embed.add_field(
-            name="THE FIRST SIGNAL",
-            value="No members have entered the constellation yet.\nBe the first to make an impact.",
-            inline=False,
-        )
-
-    if viewer_id:
-        viewer = guild.get_member(viewer_id)
-        if viewer:
-            profile = await service.profile(guild, viewer)
-            filled = round((profile["current"] / max(1, profile["needed"])) * 12)
-            progress = "▰" * min(12, filled) + "░" * max(0, 12 - filled)
-            embed.add_field(
-                name=f"YOUR SIGNAL  ·  RANK #{profile['rank']}",
-                value=(
-                    f"Level **{profile['level']}**  ·  **{profile['total']:,} XP**\n"
-                    f"{progress}  `{profile['current']:,}/{profile['needed']:,}` to next level"
-                ),
-                inline=False,
-            )
-    embed.set_footer(
-        text="Guild Pulse  •  Updated live  •  Every signal changes the room"
+    card = await render_top_five_card(
+        guild, rows, settings, viewer_id, viewer_profile=viewer_profile
     )
-    return embed
+    embed.set_image(url=f"attachment://{CARD_FILENAME}")
+    embed.set_footer(
+        text="Guild Pulse  •  Top five updated live  •  Tap My Pulse for your path"
+    )
+    return embed, discord.File(io.BytesIO(card), filename=CARD_FILENAME)
+
+
+async def leaderboard_embed(
+    guild: discord.Guild, bot=None, viewer_id: int | None = None
+) -> discord.Embed:
+    """Compatibility wrapper for callers that only need the embed metadata."""
+    return (await leaderboard_payload(guild, bot, viewer_id))[0]
 
 
 class PulseMemberView(ui.View):
@@ -439,8 +415,13 @@ class PulseMemberView(ui.View):
 
     @ui.button(label="🏆 Leaderboard", style=discord.ButtonStyle.secondary)
     async def leaderboard(self, interaction: discord.Interaction, button: ui.Button):
+        payload = await leaderboard_payload(
+            self.guild, self.bot, interaction.user.id
+        )
         await interaction.response.edit_message(
-            embed=await leaderboard_embed(self.guild, self.bot, interaction.user.id), view=self
+            embed=payload[0],
+            attachments=[payload[1]],
+            view=self,
         )
 
     @ui.button(label="🕒 History", style=discord.ButtonStyle.secondary)
