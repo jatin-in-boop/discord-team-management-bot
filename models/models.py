@@ -40,6 +40,44 @@ class ManagedRoleOwnerType(str, enum.Enum):
     PULSE_REWARD = "pulse_reward"
 
 
+class PulsePacing(str, enum.Enum):
+    RELAXED = "relaxed"
+    BALANCED = "balanced"
+    AMBITIOUS = "ambitious"
+
+
+class XPSource(str, enum.Enum):
+    MESSAGE = "message"
+    VOICE = "voice"
+    REACTION = "reaction"
+    EVENT = "event"
+    MANUAL = "manual"
+
+
+class GiveawayStatus(str, enum.Enum):
+    DRAFT = "draft"
+    SCHEDULED = "scheduled"
+    LIVE = "live"
+    ENDING = "ending"
+    WINNER_PENDING_CLAIM = "winner_pending_claim"
+    COMPLETED = "completed"
+    PAUSED = "paused"
+    CANCELLED = "cancelled"
+    FAILED_REPAIR = "failed_repair"
+
+
+class GiveawayEntryMode(str, enum.Enum):
+    BUTTON = "button"
+    REACTION = "reaction"
+
+
+class ClaimStatus(str, enum.Enum):
+    PENDING = "pending"
+    CLAIMED = "claimed"
+    EXPIRED = "expired"
+    FULFILLED_MANUALLY = "fulfilled_manually"
+
+
 class ChannelType(str, enum.Enum):
     PLAN = "plan"
     DISCUSSION = "discussion"
@@ -68,6 +106,18 @@ class Guild(Base):
         back_populates="guild", cascade="all, delete-orphan"
     )
     managed_roles: Mapped[List["ManagedRoleRegistry"]] = relationship(
+        back_populates="guild", cascade="all, delete-orphan"
+    )
+    pulse_settings: Mapped[Optional["PulseSettings"]] = relationship(
+        back_populates="guild", cascade="all, delete-orphan", uselist=False
+    )
+    pulse_members: Mapped[List["PulseMember"]] = relationship(
+        back_populates="guild", cascade="all, delete-orphan"
+    )
+    pulse_seasons: Mapped[List["PulseSeason"]] = relationship(
+        back_populates="guild", cascade="all, delete-orphan"
+    )
+    giveaways: Mapped[List["Giveaway"]] = relationship(
         back_populates="guild", cascade="all, delete-orphan"
     )
 
@@ -332,3 +382,253 @@ class ManagedRoleRegistry(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     guild: Mapped["Guild"] = relationship(back_populates="managed_roles")
+
+
+class PulseSettings(Base):
+    __tablename__ = "pulse_settings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("guilds.guild_id", ondelete="CASCADE"),
+        unique=True, nullable=False, index=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(50), default="Pulse", nullable=False)
+    pacing: Mapped[PulsePacing] = mapped_column(
+        SQLEnum(PulsePacing), default=PulsePacing.BALANCED, nullable=False
+    )
+    max_level: Mapped[int] = mapped_column(BigInteger, default=100, nullable=False)
+    enabled_sources: Mapped[list] = mapped_column(
+        JSON, default=lambda: [XPSource.MESSAGE.value], nullable=False
+    )
+    source_config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    announcement_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    announcement_mode: Mapped[str] = mapped_column(
+        String(30), default="milestones", nullable=False
+    )
+    leaderboard_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    leaderboard_message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    leaderboard_scope: Mapped[str] = mapped_column(String(30), default="all_time", nullable=False)
+    leaderboard_refresh_interval: Mapped[int] = mapped_column(
+        BigInteger, default=300, nullable=False
+    )
+    leaderboard_last_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    leaderboard_last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    leaderboard_rendered: Mapped[Optional[str]] = mapped_column(String(6000), nullable=True)
+    brand_config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    band_config: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    updated_by: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    guild: Mapped["Guild"] = relationship(back_populates="pulse_settings")
+
+
+class PulseMember(Base):
+    __tablename__ = "pulse_members"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("guilds.guild_id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    member_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    total_xp: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    current_season_xp: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    current_level: Mapped[int] = mapped_column(BigInteger, default=1, nullable=False)
+    last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_rank: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    seven_day_xp: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    guild: Mapped["Guild"] = relationship(back_populates="pulse_members")
+    ledger: Mapped[List["XPLedger"]] = relationship(
+        back_populates="member", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("guild_id", "member_id", name="uq_pulse_guild_member"),
+    )
+
+
+class XPLedger(Base):
+    __tablename__ = "xp_ledger"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("guilds.guild_id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    member_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    pulse_member_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("pulse_members.id", ondelete="CASCADE"), nullable=False
+    )
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source: Mapped[XPSource] = mapped_column(SQLEnum(XPSource), nullable=False)
+    source_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    reversal_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    member: Mapped["PulseMember"] = relationship(back_populates="ledger")
+
+
+class PulseSeason(Base):
+    __tablename__ = "pulse_seasons"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("guilds.guild_id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    end_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="active", nullable=False)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    guild: Mapped["Guild"] = relationship(back_populates="pulse_seasons")
+
+
+class PulseReward(Base):
+    __tablename__ = "pulse_rewards"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("guilds.guild_id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    threshold: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    band_key: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    role_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    role_source: Mapped[RoleSource] = mapped_column(
+        SQLEnum(RoleSource), default=RoleSource.EXISTING, nullable=False
+    )
+    brand_config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    mutually_exclusive_group: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("guild_id", "kind", "threshold", name="uq_pulse_reward_threshold"),
+    )
+
+
+class Giveaway(Base):
+    __tablename__ = "giveaways"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("guilds.guild_id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    prize_description: Mapped[str] = mapped_column(String(4000), nullable=False)
+    organizer_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sponsor_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    status: Mapped[GiveawayStatus] = mapped_column(
+        SQLEnum(GiveawayStatus), default=GiveawayStatus.DRAFT, nullable=False, index=True
+    )
+    start_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    claim_window_seconds: Mapped[int] = mapped_column(BigInteger, default=86400, nullable=False)
+    winner_count: Mapped[int] = mapped_column(BigInteger, default=1, nullable=False)
+    entry_mode: Mapped[GiveawayEntryMode] = mapped_column(
+        SQLEnum(GiveawayEntryMode), default=GiveawayEntryMode.BUTTON, nullable=False
+    )
+    eligibility_config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    presentation_config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    organizer_acknowledged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cancelled_reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    guild: Mapped["Guild"] = relationship(back_populates="giveaways")
+    entries: Mapped[List["GiveawayEntry"]] = relationship(
+        back_populates="giveaway", cascade="all, delete-orphan"
+    )
+    draws: Mapped[List["GiveawayDraw"]] = relationship(
+        back_populates="giveaway", cascade="all, delete-orphan"
+    )
+
+
+class GiveawayEntry(Base):
+    __tablename__ = "giveaway_entries"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    giveaway_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("giveaways.id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    guild_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    member_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    entry_weight: Mapped[int] = mapped_column(BigInteger, default=1, nullable=False)
+    eligibility_status: Mapped[str] = mapped_column(String(30), default="eligible", nullable=False)
+    eligibility_failure_reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    entered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_revalidated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    giveaway: Mapped["Giveaway"] = relationship(back_populates="entries")
+
+    __table_args__ = (
+        UniqueConstraint("giveaway_id", "member_id", name="uq_giveaway_member_entry"),
+    )
+
+
+class GiveawayDraw(Base):
+    __tablename__ = "giveaway_draws"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    giveaway_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("giveaways.id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    draw_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    draw_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    eligible_entry_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    winner_order: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    seed_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    reveal_seed: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    reason: Mapped[str] = mapped_column(String(255), default="scheduled_end", nullable=False)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    giveaway: Mapped["Giveaway"] = relationship(back_populates="draws")
+    winners: Mapped[List["GiveawayWinner"]] = relationship(
+        back_populates="draw", cascade="all, delete-orphan"
+    )
+
+
+class GiveawayWinner(Base):
+    __tablename__ = "giveaway_winners"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    draw_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("giveaway_draws.id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    giveaway_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    member_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    position: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    claim_status: Mapped[ClaimStatus] = mapped_column(
+        SQLEnum(ClaimStatus), default=ClaimStatus.PENDING, nullable=False
+    )
+    claim_deadline: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expired_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    replacement_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+
+    draw: Mapped["GiveawayDraw"] = relationship(back_populates="winners")

@@ -135,3 +135,24 @@ class ManagementPanelView(discord.ui.View):
             view=CommunityFeaturesView(interaction.client),
             ephemeral=True,
         )
+
+    @discord.ui.button(
+        label="✦ Community Systems",
+        style=discord.ButtonStyle.primary,
+        custom_id="community_systems",
+        row=2,
+    )
+    async def community_systems(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from bot.views.community_systems import CommunitySystemsView, community_systems_embed
+
+        if not interaction.guild:
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error("Error", "This action can only be performed in a server."),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            embed=await community_systems_embed(interaction.guild, interaction.client),
+            view=CommunitySystemsView(interaction.client, interaction.guild),
+            ephemeral=True,
+        )

@@ -9,6 +9,9 @@ from bot.services.permission_service import PermissionService
 from bot.services.team_creation import TeamCreationService
 from bot.services.reaction_role_service import ReactionRoleService
 from bot.services.audit_service import AuditService
+from bot.services.pulse_service import PulseService
+from bot.services.giveaway_service import GiveawayService
+from bot.services.scheduler_service import CommunityScheduler
 from bot.views.management_panel import ManagementPanelView
 
 logger = get_logger(__name__)
@@ -32,9 +35,15 @@ class TeamManagementBot(commands.Bot):
         self.restoration_service = PanelRestorationService(self)
         self.team_creation_service = TeamCreationService(self)
         self.reaction_role_service = ReactionRoleService(self)
+        self.pulse_service = PulseService(self)
+        self.giveaway_service = GiveawayService(self)
+        self.community_scheduler = CommunityScheduler(
+            self, self.pulse_service, self.giveaway_service
+        )
         self.permission_service = PermissionService()
         self.persistent_views_registered = False
         self.community_views_restored = False
+        self.giveaway_views_restored = False
 
     async def setup_hook(self):
         logger.info("bot.startup.begin")
@@ -53,6 +62,7 @@ class TeamManagementBot(commands.Bot):
         # 6. Register persistent views
         self.add_view(ManagementPanelView())
         self.persistent_views_registered = True
+        self.community_scheduler.start()
         logger.info("bot.startup.persistent_views_registered")
 
         logger.info("bot.startup.complete")
@@ -73,6 +83,11 @@ class TeamManagementBot(commands.Bot):
             restored = await self.reaction_role_service.restore_views()
             self.community_views_restored = True
             logger.info("community.reaction_views_restored", count=restored)
+        if not self.giveaway_views_restored:
+            restored = await self.giveaway_service.restore_views()
+            self.giveaway_views_restored = True
+            logger.info("giveaway.views_restored", count=restored)
+        await self.community_scheduler.tick()
 
         logger.info("bot.startup.recovery_complete")
 
@@ -124,12 +139,18 @@ class TeamManagementBot(commands.Bot):
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         await self.reaction_role_service.handle_reaction(payload, adding=True)
+        await self.pulse_service.handle_reaction(payload)
 
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
         await self.reaction_role_service.handle_reaction(payload, adding=False)
 
+    async def on_message(self, message: discord.Message):
+        await self.pulse_service.handle_message(message)
+        await self.process_commands(message)
+
     async def close(self):
         logger.info("bot.shutdown.begin")
+        await self.community_scheduler.stop()
         await close_db()
         await super().close()
         logger.info("bot.shutdown.complete")
