@@ -44,6 +44,12 @@ DEFAULT_BANDS = [
     {"key": "inner_circle", "name": "Inner Circle", "min": 75, "max": 99, "color": 0xA78BFA},
     {"key": "legacy_signal", "name": "Legacy Signal", "min": 100, "max": 1000000, "color": 0xE2E8F0},
 ]
+DEFAULT_SOURCE_CONFIG = {
+    "message": {"amount": 8, "cooldown": 60, "daily_cap": 600, "min_length": 12},
+    "voice": {"amount": 6, "block_seconds": 300, "daily_cap": 480, "allow_solo": False},
+    "reaction": {"amount": 1, "daily_cap": 50},
+    "event": {"amount": 25, "daily_cap": 250},
+}
 
 
 def xp_required(level: int, pacing: PulsePacing = PulsePacing.BALANCED) -> int:
@@ -64,10 +70,14 @@ def progress_for(total_xp: int, level: int, pacing: PulsePacing) -> tuple[int, i
 
 
 def band_for_level(level: int, bands: list[dict]) -> dict:
-    for band in bands:
+    ordered = sorted(bands, key=lambda item: int(item.get("min", 1)))
+    previous = ordered[0]
+    for band in ordered:
         if int(band.get("min", 1)) <= level <= int(band.get("max", 1000000)):
             return band
-    return bands[-1]
+        if level >= int(band.get("min", 1)):
+            previous = band
+    return previous
 
 
 class PulseService:
@@ -86,15 +96,20 @@ class PulseService:
                 settings = PulseSettings(
                     guild_id=guild.id,
                     band_config=DEFAULT_BANDS,
-                    source_config={
-                        "message": {"amount": 8, "cooldown": 60, "daily_cap": 600, "min_length": 12},
-                        "voice": {"amount": 6, "block_seconds": 300, "daily_cap": 480},
-                        "reaction": {"amount": 1, "daily_cap": 50},
-                        "event": {"amount": 25},
-                    },
+                    source_config=DEFAULT_SOURCE_CONFIG,
                 )
                 session.add(settings)
                 await session.flush()
+            else:
+                merged_source_config = {
+                    key: {
+                        **DEFAULT_SOURCE_CONFIG[key],
+                        **(settings.source_config or {}).get(key, {}),
+                    }
+                    for key in DEFAULT_SOURCE_CONFIG
+                }
+                if merged_source_config != (settings.source_config or {}):
+                    settings.source_config = merged_source_config
             return settings
 
     async def configure(
@@ -131,6 +146,239 @@ class PulseService:
             {"enabled": enabled, "pacing": pacing.value if pacing else None, "sources": sources},
         )
         return await self.get_or_create_settings(guild)
+
+    async def update_general_settings(
+        self,
+        guild: discord.Guild,
+        executor: discord.Member,
+        *,
+        display_name: str,
+        max_level: int,
+        short_tag: str,
+        symbol: str,
+    ) -> PulseSettings:
+        display_name = display_name.strip()
+        short_tag = short_tag.strip()
+        symbol = symbol.strip()
+        if not display_name or len(display_name) > 50:
+            raise ValueError("Pulse display name must be between 1 and 50 characters.")
+        if not short_tag or len(short_tag) > 50:
+            raise ValueError("Role brand tag must be between 1 and 50 characters.")
+        if not symbol or len(symbol) > 20:
+            raise ValueError("Role symbol must be between 1 and 20 characters.")
+        if not 1 <= max_level <= 1000:
+            raise ValueError("Maximum level must be between 1 and 1000.")
+        async with get_db_session() as session:
+            settings = (
+                await session.execute(
+                    select(PulseSettings).where(PulseSettings.guild_id == guild.id)
+                )
+            ).scalar_one_or_none()
+            if not settings:
+                settings = PulseSettings(guild_id=guild.id, band_config=DEFAULT_BANDS)
+                session.add(settings)
+            settings.display_name = display_name
+            settings.max_level = max_level
+            settings.brand_config = {
+                **(settings.brand_config or {}),
+                "short_tag": short_tag,
+                "symbol": symbol,
+            }
+            settings.updated_by = executor.id
+            await session.flush()
+        await AuditService.log_action(
+            guild.id,
+            executor.id,
+            "PULSE_GENERAL_SETTINGS_UPDATED",
+            {"display_name": display_name, "max_level": max_level},
+        )
+        return await self.get_or_create_settings(guild)
+
+    async def update_source_config(
+        self,
+        guild: discord.Guild,
+        executor: discord.Member,
+        source: str,
+        values: dict,
+    ) -> PulseSettings:
+        if source not in DEFAULT_SOURCE_CONFIG:
+            raise ValueError("Unknown Guild Pulse source.")
+        limits = {
+            "amount": (0, 10000),
+            "daily_cap": (0, 1_000_000),
+            "cooldown": (0, 86_400),
+            "min_length": (0, 2_000),
+            "block_seconds": (30, 3_600),
+        }
+        cleaned = dict(DEFAULT_SOURCE_CONFIG[source])
+        async with get_db_session() as session:
+            settings = (
+                await session.execute(
+                    select(PulseSettings).where(PulseSettings.guild_id == guild.id)
+                )
+            ).scalar_one_or_none()
+            if not settings:
+                settings = PulseSettings(
+                    guild_id=guild.id,
+                    band_config=DEFAULT_BANDS,
+                    source_config=DEFAULT_SOURCE_CONFIG,
+                )
+                session.add(settings)
+            existing = (settings.source_config or {}).get(source, {})
+            cleaned.update(existing)
+            for key, value in values.items():
+                if key == "allow_solo":
+                    cleaned[key] = bool(value)
+                    continue
+                if key not in limits:
+                    continue
+                try:
+                    number = int(value)
+                except (TypeError, ValueError):
+                    raise ValueError(f"{key.replace('_', ' ').title()} must be a whole number.")
+                lower, upper = limits[key]
+                if not lower <= number <= upper:
+                    raise ValueError(
+                        f"{key.replace('_', ' ').title()} must be between {lower:,} and {upper:,}."
+                    )
+                cleaned[key] = number
+            source_config = {
+                **DEFAULT_SOURCE_CONFIG,
+                **(settings.source_config or {}),
+                source: cleaned,
+            }
+            settings.source_config = {
+                key: dict(value) for key, value in source_config.items()
+            }
+            settings.updated_by = executor.id
+            await session.flush()
+        await AuditService.log_action(
+            guild.id,
+            executor.id,
+            "PULSE_SOURCE_CONFIG_UPDATED",
+            {"source": source, "config": cleaned},
+        )
+        return await self.get_or_create_settings(guild)
+
+    async def update_band_config(
+        self,
+        guild: discord.Guild,
+        executor: discord.Member,
+        band_key: str,
+        *,
+        name: str,
+        minimum: int,
+        maximum: int,
+        role_name: str,
+        color: int,
+    ) -> PulseSettings:
+        name = name.strip()
+        role_name = role_name.strip()
+        if not name or len(name) > 60:
+            raise ValueError("Achievement tag must be between 1 and 60 characters.")
+        if not role_name or len(role_name) > 80:
+            raise ValueError("Role name must be between 1 and 80 characters.")
+        if not 1 <= minimum <= maximum <= 1_000_000:
+            raise ValueError("Level limits must be between 1 and 1,000,000, in ascending order.")
+        if not 0 <= color <= 0xFFFFFF:
+            raise ValueError("Color must be a hex value between 000000 and FFFFFF.")
+        async with get_db_session() as session:
+            settings = (
+                await session.execute(
+                    select(PulseSettings).where(PulseSettings.guild_id == guild.id)
+                )
+            ).scalar_one_or_none()
+            if not settings:
+                settings = PulseSettings(guild_id=guild.id, band_config=DEFAULT_BANDS)
+                session.add(settings)
+            bands = [dict(item) for item in (settings.band_config or DEFAULT_BANDS)]
+            target = next((item for item in bands if item.get("key") == band_key), None)
+            if not target:
+                raise ValueError("That Pulse milestone no longer exists.")
+            target.update({
+                "name": name,
+                "min": minimum,
+                "max": maximum,
+                "role_name": role_name,
+                "color": color,
+            })
+            ordered = sorted(bands, key=lambda item: int(item.get("min", 1)))
+            previous_max = 0
+            for item in ordered:
+                item_min = int(item.get("min", 1))
+                item_max = int(item.get("max", 1))
+                if item_min <= previous_max:
+                    raise ValueError("Milestone ranges cannot overlap.")
+                previous_max = item_max
+            if int(ordered[0].get("min", 1)) != 1:
+                raise ValueError("The first milestone must begin at level 1.")
+            settings.band_config = ordered
+            settings.updated_by = executor.id
+            await session.flush()
+        await AuditService.log_action(
+            guild.id,
+            executor.id,
+            "PULSE_BAND_CONFIG_UPDATED",
+            {
+                "band_key": band_key,
+                "name": name,
+                "minimum": minimum,
+                "maximum": maximum,
+                "role_name": role_name,
+                "color": color,
+            },
+        )
+        await self.sync_band_roles(guild)
+        return await self.get_or_create_settings(guild)
+
+    async def configure_milestone_reward(
+        self,
+        guild: discord.Guild,
+        executor: discord.Member,
+        *,
+        level: int,
+        role: discord.Role,
+    ) -> PulseReward:
+        if not 1 <= level <= 1000:
+            raise ValueError("Reward level must be between 1 and 1000.")
+        valid, error = await CommunityService.validate_role(guild, role)
+        if not valid:
+            raise ValueError(error)
+        async with get_db_session() as session:
+            reward = (
+                await session.execute(
+                    select(PulseReward).where(
+                        PulseReward.guild_id == guild.id,
+                        PulseReward.kind == "milestone",
+                        PulseReward.threshold == level,
+                    )
+                )
+            ).scalar_one_or_none()
+            if not reward:
+                reward = PulseReward(
+                    guild_id=guild.id,
+                    kind="milestone",
+                    threshold=level,
+                    role_id=role.id,
+                    role_source=RoleSource.EXISTING,
+                    brand_config={"role_name": role.name},
+                    enabled=True,
+                    created_by=executor.id,
+                )
+                session.add(reward)
+            else:
+                reward.role_id = role.id
+                reward.brand_config = {"role_name": role.name}
+                reward.enabled = True
+            await session.flush()
+            reward_id = reward.id
+        await AuditService.log_action(
+            guild.id,
+            executor.id,
+            "PULSE_MILESTONE_REWARD_UPDATED",
+            {"level": level, "role_id": role.id, "reward_id": reward_id},
+        )
+        return reward
 
     async def set_leaderboard_channel(
         self, guild: discord.Guild, executor: discord.Member, channel_id: int
@@ -184,6 +432,27 @@ class PulseService:
         ):
             return False, "XP source is disabled.", None
         async with get_db_session() as session:
+            if amount > 0 and source != XPSource.MANUAL:
+                source_config = (settings.source_config or {}).get(source.value, {})
+                daily_cap = int(source_config.get("daily_cap", 0))
+                if daily_cap > 0:
+                    day_start = datetime.utcnow().replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
+                    daily_total = (
+                        await session.execute(
+                            select(func.coalesce(func.sum(XPLedger.amount), 0)).where(
+                                XPLedger.guild_id == guild.id,
+                                XPLedger.member_id == member.id,
+                                XPLedger.source == source,
+                                XPLedger.created_at >= day_start,
+                            )
+                        )
+                    ).scalar_one()
+                    remaining = max(0, daily_cap - int(daily_total or 0))
+                    amount = min(amount, remaining)
+                    if amount <= 0:
+                        return False, "Daily XP limit reached.", None
             existing = (
                 await session.execute(
                     select(XPLedger).where(XPLedger.idempotency_key == idempotency_key)
@@ -230,7 +499,7 @@ class PulseService:
                 return False, "Duplicate XP event ignored.", None
             new_level = pulse_member.current_level
         if new_level != old_level:
-            await self.apply_band_role(guild, member, new_level, settings)
+            await self.apply_progression_roles(guild, member, old_level, new_level, settings)
             await AuditService.log_action(
                 guild.id, self.bot.user.id if self.bot.user else 0,
                 "PULSE_LEVEL_UP",
@@ -241,6 +510,53 @@ class PulseService:
                     source_message, member, old_level, new_level, settings
                 )
         return True, f"+{amount} XP awarded.", await self.get_member(guild.id, member.id)
+
+    async def apply_progression_roles(
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+        old_level: int,
+        new_level: int,
+        settings: PulseSettings,
+    ) -> None:
+        await self.apply_band_role(guild, member, new_level, settings)
+        async with get_db_session() as session:
+            rewards = list(
+                (
+                    await session.execute(
+                        select(PulseReward).where(
+                            PulseReward.guild_id == guild.id,
+                            PulseReward.kind == "milestone",
+                            PulseReward.enabled.is_(True),
+                            PulseReward.threshold > old_level,
+                            PulseReward.threshold <= new_level,
+                        )
+                    )
+                ).scalars().all()
+            )
+        for reward in rewards:
+            role = guild.get_role(reward.role_id)
+            if not role:
+                continue
+            valid, error = await CommunityService.validate_role(guild, role)
+            if not valid:
+                logger.warning(
+                    "pulse.milestone_role_unmanageable",
+                    guild_id=guild.id,
+                    role_id=role.id,
+                    reason=error,
+                )
+                continue
+            try:
+                if role not in member.roles:
+                    await member.add_roles(role, reason="Guild Pulse milestone reward")
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                logger.warning(
+                    "pulse.milestone_role_assignment_failed",
+                    guild_id=guild.id,
+                    role_id=role.id,
+                    error=str(exc),
+                )
 
     async def _announce_level_up(
         self,
@@ -353,7 +669,7 @@ class PulseService:
                     ).limit(1)
                 )
             ).scalar_one_or_none()
-        if recent or int(daily_total or 0) >= daily_cap or repeated:
+        if recent or (daily_cap > 0 and int(daily_total or 0) >= daily_cap) or repeated:
             return
         await self.award_xp(
             message.guild, message.author, int(config.get("amount", 8)),
@@ -395,7 +711,8 @@ class PulseService:
                     )
                 )
             ).scalar_one()
-        if int(daily_total or 0) >= int(config.get("daily_cap", 50)):
+        daily_cap = int(config.get("daily_cap", 50))
+        if daily_cap > 0 and int(daily_total or 0) >= daily_cap:
             return
         await self.award_xp(
             guild,
@@ -625,7 +942,7 @@ class PulseService:
                 failed += 1
                 continue
             config = {
-                "role_name": band.get("name", "Pulse Band"),
+                "role_name": band.get("role_name", band.get("name", "Pulse Band")),
                 "brand_tag": (settings.brand_config or {}).get("short_tag", "Pulse"),
                 "symbol": (settings.brand_config or {}).get("symbol", "◈"),
             }
@@ -692,10 +1009,14 @@ class PulseService:
                 {},
             )
             config = reward.brand_config or {}
+            brand = settings.brand_config or {}
+            role_name = band.get("role_name") or config.get("role_name") or band.get("name", "Pulse Band")
+            brand_tag = brand.get("short_tag", "Pulse")
+            symbol = brand.get("symbol", "◈")
             desired = _format_role_name(
-                config.get("role_name") or band.get("name", "Pulse Band"),
-                config.get("brand_tag", (settings.brand_config or {}).get("short_tag", "Pulse")),
-                config.get("symbol", (settings.brand_config or {}).get("symbol", "◈")),
+                role_name,
+                brand_tag,
+                symbol,
             )
             try:
                 valid, error = await CommunityService.validate_role(guild, role)
@@ -717,11 +1038,17 @@ class PulseService:
                     if registry:
                         registry.generated_name = desired
                         registry.color = role.color.value
-                        registry.brand_tag = config.get("brand_tag")
-                        registry.symbol = config.get("symbol")
+                        registry.brand_tag = brand_tag
+                        registry.symbol = symbol
                         registry.last_sync_status = "synced"
                         registry.last_sync_error = None
-                        await session.commit()
+                    reward.brand_config = {
+                        **config,
+                        "role_name": role_name,
+                        "brand_tag": brand_tag,
+                        "symbol": symbol,
+                    }
+                    await session.commit()
                 synced += 1
             except (ValueError, discord.HTTPException, discord.Forbidden):
                 failed += 1
