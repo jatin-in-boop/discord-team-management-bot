@@ -173,9 +173,16 @@ def _upgrade_saved_default(
         PREMIUM_WELCOME_DEFAULT if kind == "welcome" else PREMIUM_GOODBYE_DEFAULT
     )
     replacement = WELCOME_DEFAULT if kind == "welcome" else GOODBYE_DEFAULT
-    if all(current.get(key) == value for key, value in legacy.items()):
+    # Older releases stored the same built-in copy in either plain-text or
+    # embed mode. Match the content, not the presentation mode, so those
+    # servers do not get stuck with a hybrid old-copy/new-shell message.
+    legacy_content_keys = ("title", "description", "footer", "thumbnail")
+    if all(current.get(key) == legacy[key] for key in legacy_content_keys):
         return dict(replacement), True
-    if all(current.get(key) == value for key, value in prior_premium.items()):
+    if all(
+        current.get(key) == prior_premium[key]
+        for key in ("style", "title", "description", "footer", "thumbnail", "mention")
+    ):
         return dict(replacement), True
     changed = False
     for key, value in replacement.items():
@@ -419,6 +426,9 @@ class CommunityService:
                 else settings.goodbye_message_config
             ) or (dict(WELCOME_DEFAULT) if kind == "welcome" else dict(GOODBYE_DEFAULT))
             config, _ = _upgrade_saved_default(config, kind)
+            uses_builtin_card = config == (
+                WELCOME_DEFAULT if kind == "welcome" else GOODBYE_DEFAULT
+            )
         if not enabled and not test:
             return False, f"{kind.title()} messages are disabled."
         channel = guild.get_channel(channel_id) if channel_id else None
@@ -431,15 +441,17 @@ class CommunityService:
             description = render_template(
                 config.get("description", ""), guild, member, kind
             )
-            if kind == "welcome":
+            if kind == "welcome" and uses_builtin_card:
                 content = (
                     f"{mention}  **entry confirmed**\n"
                     f"`{guild.name.upper()} // ARRIVAL PROTOCOL COMPLETE`"
                     if config.get("mention", True)
                     else f"**entry confirmed**\n`{guild.name.upper()} // ARRIVAL PROTOCOL COMPLETE`"
                 )
-            else:
+            elif kind == "goodbye" and uses_builtin_card:
                 content = f"**{member_name}**  has left the room."
+            else:
+                content = mention if config.get("mention", False) else None
             if config.get("style") == "embed":
                 await channel.send(
                     content=content,
