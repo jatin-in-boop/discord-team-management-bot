@@ -338,11 +338,12 @@ class PulseService:
         settings = await self.get_or_create_settings(guild)
         config = (settings.source_config or {}).get("voice", {})
         eligible_channels = {int(item) for item in config.get("channel_ids", [])}
+        afk_channel = guild.afk_channel
         awarded = 0
         for channel in guild.voice_channels:
             if eligible_channels and channel.id not in eligible_channels:
                 continue
-            if channel.id == guild.afk_channel_id:
+            if afk_channel and channel.id == afk_channel.id:
                 continue
             members = [item for item in channel.members if not item.bot]
             if not config.get("allow_solo", False) and len(members) < 2:
