@@ -1,2 +1,3 @@
 - [Railway deployment access](railway-deployment.md) — Railway API authentication works, but the available token currently has no accessible projects.
 - [Uploaded asset hygiene](uploaded-asset-hygiene.md) — inspect Git history before pushing; workspace uploads may be auto-committed even when meant only as visual references.
+- [Guild Pulse cap semantics](guild-pulse-cap-semantics.md) — source daily caps are hard per-member limits; a configured zero means unlimited.
