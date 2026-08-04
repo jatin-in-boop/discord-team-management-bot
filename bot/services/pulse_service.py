@@ -35,15 +35,41 @@ PACE_MULTIPLIER = {
     PulsePacing.AMBITIOUS: 1.25,
 }
 DEFAULT_BANDS = [
-    {"key": "new_signal", "name": "New Signal", "min": 1, "max": 4, "color": 0x64748B},
-    {"key": "active_presence", "name": "Active Presence", "min": 5, "max": 9, "color": 0x22D3EE},
-    {"key": "familiar_voice", "name": "Familiar Voice", "min": 10, "max": 19, "color": 0x8B5CF6},
-    {"key": "community_pillar", "name": "Community Pillar", "min": 20, "max": 34, "color": 0xF59E0B},
-    {"key": "trusted_core", "name": "Trusted Core", "min": 35, "max": 49, "color": 0xFB7185},
-    {"key": "guild_beacon", "name": "Guild Beacon", "min": 50, "max": 74, "color": 0xFACC15},
-    {"key": "inner_circle", "name": "Inner Circle", "min": 75, "max": 99, "color": 0xA78BFA},
-    {"key": "legacy_signal", "name": "Legacy Signal", "min": 100, "max": 1000000, "color": 0xE2E8F0},
+    {"key": "new_signal", "name": "╰・𝑨𝒘𝒂𝒌𝒆𝒏𝒆𝒅", "min": 1, "max": 4, "color": 0x64748B},
+    {"key": "active_presence", "name": "╰・𝑻𝒓𝒂𝒗𝒆𝒍𝒆𝒓", "min": 5, "max": 9, "color": 0x22D3EE},
+    {"key": "familiar_voice", "name": "╰・𝑽𝒂𝒏𝒈𝒖𝒂𝒓𝒅", "min": 10, "max": 19, "color": 0x8B5CF6},
+    {"key": "community_pillar", "name": "╰・𝑺𝒆𝒏𝒕𝒊𝒏𝒆𝒍", "min": 20, "max": 34, "color": 0xF59E0B},
+    {"key": "trusted_core", "name": "╰・𝑬𝒍𝒊𝒕𝒆", "min": 35, "max": 49, "color": 0xFB7185},
+    {"key": "guild_beacon", "name": "╰・𝑪𝒉𝒂𝒎𝒑𝒊𝒐𝒏", "min": 50, "max": 74, "color": 0xFACC15},
+    {"key": "inner_circle", "name": "╰・𝑳𝒆𝒈𝒆𝒏𝒅", "min": 75, "max": 99, "color": 0xA78BFA},
+    {"key": "legacy_signal", "name": "╰・𝑰𝒎𝒎𝒐𝒓𝒕𝒂𝒍", "min": 100, "max": 1000000, "color": 0xE2E8F0},
 ]
+MANUAL_DISPLAY_ROLE_GROUPS = (
+    (
+        "squad_power",
+        (
+            "╰・𝟑𝑲–𝟒𝑲",
+            "╰・𝟒𝑲–𝟔𝑲",
+            "╰・𝟔𝑲–𝟖𝑲",
+            "╰・𝟖𝑲–𝟏𝟎𝑲",
+            "╰・𝟏𝟎𝑲–𝟏𝟐𝑲",
+            "╰・𝟏𝟐𝑲–𝟏𝟔𝑲",
+            "╰・𝟏𝟔𝑲–𝟐𝟎𝑲",
+            "╰・𝟐𝟎𝑲+",
+        ),
+    ),
+    (
+        "tournament_bracket",
+        (
+            "╰・𝑵𝒐𝒗𝒊𝒄𝒆",
+            "╰・𝑷𝒓𝒐𝒇𝒆𝒔𝒔𝒊𝒐𝒏𝒂𝒍",
+            "╰・𝑬𝒙𝒑𝒆𝒓𝒕",
+            "╰・𝑴𝒂𝒔𝒕𝒆𝒓",
+            "╰・𝑮𝒓𝒂𝒏𝒅 𝑴𝒂𝒔𝒕𝒆𝒓",
+        ),
+    ),
+)
+PLAYER_LEGACY_NAME = "PLAYER LEGACY"
 DEFAULT_SOURCE_CONFIG = {
     "message": {"amount": 8, "cooldown": 60, "daily_cap": 600, "min_length": 12},
     "voice": {"amount": 6, "block_seconds": 300, "daily_cap": 480, "allow_solo": False},
@@ -95,8 +121,11 @@ class PulseService:
             if not settings:
                 settings = PulseSettings(
                     guild_id=guild.id,
+                    display_name=PLAYER_LEGACY_NAME,
+                    max_level=100,
                     band_config=DEFAULT_BANDS,
                     source_config=DEFAULT_SOURCE_CONFIG,
+                    brand_config={},
                 )
                 session.add(settings)
                 await session.flush()
@@ -129,7 +158,13 @@ class PulseService:
                 )
             ).scalar_one_or_none()
             if not settings:
-                settings = PulseSettings(guild_id=guild.id, band_config=DEFAULT_BANDS)
+                settings = PulseSettings(
+                    guild_id=guild.id,
+                    display_name=PLAYER_LEGACY_NAME,
+                    max_level=100,
+                    band_config=DEFAULT_BANDS,
+                    brand_config={},
+                )
                 session.add(settings)
             if enabled is not None:
                 settings.enabled = enabled
@@ -154,18 +189,12 @@ class PulseService:
         *,
         display_name: str,
         max_level: int,
-        short_tag: str,
-        symbol: str,
+        short_tag: str = "",
+        symbol: str = "",
     ) -> PulseSettings:
         display_name = display_name.strip()
-        short_tag = short_tag.strip()
-        symbol = symbol.strip()
         if not display_name or len(display_name) > 50:
             raise ValueError("Pulse display name must be between 1 and 50 characters.")
-        if not short_tag or len(short_tag) > 50:
-            raise ValueError("Role brand tag must be between 1 and 50 characters.")
-        if not symbol or len(symbol) > 20:
-            raise ValueError("Role symbol must be between 1 and 20 characters.")
         if not 1 <= max_level <= 1000:
             raise ValueError("Maximum level must be between 1 and 1000.")
         async with get_db_session() as session:
@@ -175,15 +204,17 @@ class PulseService:
                 )
             ).scalar_one_or_none()
             if not settings:
-                settings = PulseSettings(guild_id=guild.id, band_config=DEFAULT_BANDS)
+                settings = PulseSettings(
+                    guild_id=guild.id,
+                    display_name=PLAYER_LEGACY_NAME,
+                    max_level=100,
+                    band_config=DEFAULT_BANDS,
+                    brand_config={},
+                )
                 session.add(settings)
             settings.display_name = display_name
             settings.max_level = max_level
-            settings.brand_config = {
-                **(settings.brand_config or {}),
-                "short_tag": short_tag,
-                "symbol": symbol,
-            }
+            settings.brand_config = {}
             settings.updated_by = executor.id
             await session.flush()
         await AuditService.log_action(
@@ -193,6 +224,49 @@ class PulseService:
             {"display_name": display_name, "max_level": max_level},
         )
         return await self.get_or_create_settings(guild)
+
+    async def apply_default_presentation(
+        self, guild: discord.Guild, executor_id: int = 0
+    ) -> tuple[int, int]:
+        """Apply PLAYER LEGACY presentation without changing Pulse progression data."""
+        async with get_db_session() as session:
+            settings = (
+                await session.execute(
+                    select(PulseSettings).where(PulseSettings.guild_id == guild.id)
+                )
+            ).scalar_one_or_none()
+            if not settings:
+                settings = PulseSettings(
+                    guild_id=guild.id,
+                    display_name=PLAYER_LEGACY_NAME,
+                    max_level=100,
+                    band_config=DEFAULT_BANDS,
+                    source_config=DEFAULT_SOURCE_CONFIG,
+                    brand_config={},
+                )
+                session.add(settings)
+            else:
+                existing_by_key = {
+                    item.get("key"): item for item in (settings.band_config or [])
+                }
+                normalized_bands = []
+                for default in DEFAULT_BANDS:
+                    current = dict(existing_by_key.get(default["key"], {}))
+                    normalized_bands.append({
+                        **default,
+                        **current,
+                        "name": default["name"],
+                        "role_name": default["name"],
+                    })
+                settings.band_config = normalized_bands
+                settings.display_name = PLAYER_LEGACY_NAME
+                settings.max_level = 100
+                settings.brand_config = {}
+            settings.updated_by = executor_id or settings.updated_by
+            await session.flush()
+        await self.ensure_band_roles(guild, executor_id)
+        await self.sync_band_roles(guild, preserve_colors=True)
+        return await self.ensure_manual_display_roles(guild)
 
     async def update_source_config(
         self,
@@ -220,8 +294,11 @@ class PulseService:
             if not settings:
                 settings = PulseSettings(
                     guild_id=guild.id,
+                    display_name=PLAYER_LEGACY_NAME,
+                    max_level=100,
                     band_config=DEFAULT_BANDS,
                     source_config=DEFAULT_SOURCE_CONFIG,
+                    brand_config={},
                 )
                 session.add(settings)
             existing = (settings.source_config or {}).get(source, {})
@@ -267,10 +344,7 @@ class PulseService:
         band_key: str,
         *,
         name: str,
-        minimum: int,
-        maximum: int,
         role_name: str,
-        color: int,
     ) -> PulseSettings:
         name = name.strip()
         role_name = role_name.strip()
@@ -278,10 +352,6 @@ class PulseService:
             raise ValueError("Achievement tag must be between 1 and 60 characters.")
         if not role_name or len(role_name) > 80:
             raise ValueError("Role name must be between 1 and 80 characters.")
-        if not 1 <= minimum <= maximum <= 1_000_000:
-            raise ValueError("Level limits must be between 1 and 1,000,000, in ascending order.")
-        if not 0 <= color <= 0xFFFFFF:
-            raise ValueError("Color must be a hex value between 000000 and FFFFFF.")
         async with get_db_session() as session:
             settings = (
                 await session.execute(
@@ -289,7 +359,13 @@ class PulseService:
                 )
             ).scalar_one_or_none()
             if not settings:
-                settings = PulseSettings(guild_id=guild.id, band_config=DEFAULT_BANDS)
+                settings = PulseSettings(
+                    guild_id=guild.id,
+                    display_name=PLAYER_LEGACY_NAME,
+                    max_level=100,
+                    band_config=DEFAULT_BANDS,
+                    brand_config={},
+                )
                 session.add(settings)
             bands = [dict(item) for item in (settings.band_config or DEFAULT_BANDS)]
             target = next((item for item in bands if item.get("key") == band_key), None)
@@ -297,22 +373,9 @@ class PulseService:
                 raise ValueError("That Pulse milestone no longer exists.")
             target.update({
                 "name": name,
-                "min": minimum,
-                "max": maximum,
                 "role_name": role_name,
-                "color": color,
             })
-            ordered = sorted(bands, key=lambda item: int(item.get("min", 1)))
-            previous_max = 0
-            for item in ordered:
-                item_min = int(item.get("min", 1))
-                item_max = int(item.get("max", 1))
-                if item_min <= previous_max:
-                    raise ValueError("Milestone ranges cannot overlap.")
-                previous_max = item_max
-            if int(ordered[0].get("min", 1)) != 1:
-                raise ValueError("The first milestone must begin at level 1.")
-            settings.band_config = ordered
+            settings.band_config = bands
             settings.updated_by = executor.id
             await session.flush()
         await AuditService.log_action(
@@ -322,13 +385,10 @@ class PulseService:
             {
                 "band_key": band_key,
                 "name": name,
-                "minimum": minimum,
-                "maximum": maximum,
                 "role_name": role_name,
-                "color": color,
             },
         )
-        await self.sync_band_roles(guild)
+        await self.sync_band_roles(guild, preserve_colors=True)
         return await self.get_or_create_settings(guild)
 
     async def configure_milestone_reward(
@@ -569,7 +629,7 @@ class PulseService:
         band = band_for_level(new_level, settings.band_config or DEFAULT_BANDS)
         announcement = (
             f"🎉 Yoo {member.mention}, you leveled up! ✨\n"
-            f"🏆 Level **{new_level}** • **{band.get('name', 'Signal')}** 🎖️"
+                    f"🏆 Level **{new_level}** • **{band.get('name', 'Milestone')}** 🎖️"
         )
         mentions = discord.AllowedMentions(
             users=True, roles=False, everyone=False, replied_user=False
@@ -921,8 +981,8 @@ class PulseService:
                 continue
             config = {
                 "role_name": band.get("role_name", band.get("name", "Pulse Band")),
-                "brand_tag": (settings.brand_config or {}).get("short_tag", "Pulse"),
-                "symbol": (settings.brand_config or {}).get("symbol", "◈"),
+                "brand_tag": "",
+                "symbol": "",
             }
             name = _format_role_name(config["role_name"], config["brand_tag"], config["symbol"])
             try:
@@ -960,10 +1020,83 @@ class PulseService:
                 created += 1
             except (discord.Forbidden, discord.HTTPException, ValueError):
                 failed += 1
-        await self.sync_band_roles(guild)
+        await self.sync_band_roles(guild, preserve_colors=True)
         return created, failed
 
-    async def sync_band_roles(self, guild: discord.Guild) -> tuple[int, int]:
+    async def ensure_manual_display_roles(self, guild: discord.Guild) -> tuple[int, int]:
+        """Create informational roles once, without registering them with Pulse."""
+        created = failed = 0
+        roles_by_name = {role.name: role for role in guild.roles}
+        created_roles: list[discord.Role] = []
+        for _, names in MANUAL_DISPLAY_ROLE_GROUPS:
+            for name in names:
+                role = roles_by_name.get(name)
+                if role is None:
+                    try:
+                        role = await guild.create_role(
+                            name=name,
+                            permissions=discord.Permissions.none(),
+                            colour=discord.Colour.default(),
+                            hoist=False,
+                            mentionable=False,
+                            reason="Create informational display role",
+                        )
+                        roles_by_name[name] = role
+                        created += 1
+                    except (discord.Forbidden, discord.HTTPException) as exc:
+                        logger.warning(
+                            "pulse.manual_display_role_create_failed",
+                            guild_id=guild.id,
+                            role_name=name,
+                            error=str(exc),
+                        )
+                        failed += 1
+                        continue
+                created_roles.append(role)
+
+        band_role_ids = set()
+        async with get_db_session() as session:
+            rewards = (
+                await session.execute(
+                    select(PulseReward).where(
+                        PulseReward.guild_id == guild.id,
+                        PulseReward.kind == "band",
+                    )
+                )
+            ).scalars().all()
+            band_role_ids = {reward.role_id for reward in rewards}
+        band_roles = [role for role in guild.roles if role.id in band_role_ids]
+        ordered_manual_roles = [
+            roles_by_name[name]
+            for _, names in MANUAL_DISPLAY_ROLE_GROUPS
+            for name in names
+            if name in roles_by_name
+        ]
+        if ordered_manual_roles and band_roles:
+            lowest_band_position = min(role.position for role in band_roles)
+            positions = {
+                role: lowest_band_position - 1 - offset
+                for offset, role in enumerate(ordered_manual_roles)
+                if lowest_band_position - 1 - offset > 0
+            }
+            if positions:
+                try:
+                    await guild.edit_role_positions(
+                        positions=positions,
+                        reason="Place informational display roles below Guild Pulse roles",
+                    )
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    logger.warning(
+                        "pulse.manual_display_role_position_failed",
+                        guild_id=guild.id,
+                        error=str(exc),
+                    )
+                    failed += 1
+        return created, failed
+
+    async def sync_band_roles(
+        self, guild: discord.Guild, *, preserve_colors: bool = False
+    ) -> tuple[int, int]:
         settings = await self.get_or_create_settings(guild)
         synced = failed = 0
         async with get_db_session() as session:
@@ -987,10 +1120,9 @@ class PulseService:
                 {},
             )
             config = reward.brand_config or {}
-            brand = settings.brand_config or {}
             role_name = band.get("role_name") or config.get("role_name") or band.get("name", "Pulse Band")
-            brand_tag = brand.get("short_tag", "Pulse")
-            symbol = brand.get("symbol", "◈")
+            brand_tag = ""
+            symbol = ""
             desired = _format_role_name(
                 role_name,
                 brand_tag,
@@ -1000,10 +1132,17 @@ class PulseService:
                 valid, error = await CommunityService.validate_role(guild, role)
                 if not valid:
                     raise ValueError(error)
-                changes = {"name": desired}
-                if band.get("color") is not None:
-                    changes["colour"] = discord.Colour(int(band["color"]))
-                await role.edit(**changes, reason="Synchronize Guild Pulse band role")
+                changes = {}
+                if role.name != desired:
+                    changes["name"] = desired
+                if not preserve_colors and band.get("color") is not None:
+                    colour = discord.Colour(int(band["color"]))
+                    if role.colour != colour:
+                        changes["colour"] = colour
+                if changes:
+                    await role.edit(
+                        **changes, reason="Synchronize PLAYER LEGACY milestone role"
+                    )
                 async with get_db_session() as session:
                     registry = (
                         await session.execute(

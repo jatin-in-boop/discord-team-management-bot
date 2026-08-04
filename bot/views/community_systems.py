@@ -15,6 +15,7 @@ from bot.services.permission_service import PermissionService
 from bot.services.pulse_service import (
     DEFAULT_BANDS,
     DEFAULT_SOURCE_CONFIG,
+    PLAYER_LEGACY_NAME,
     PulseService,
     band_for_level,
 )
@@ -91,7 +92,7 @@ async def community_systems_embed(guild: discord.Guild, bot=None) -> discord.Emb
         if pulse.leaderboard_channel_id else "Not configured"
     )
     description = (
-        f"**Guild Pulse**       {_state(pulse.enabled)} · {tracked} members tracked\n"
+        f"**PLAYER LEGACY**     {_state(pulse.enabled)} · {tracked} members tracked\n"
         f"**Pacing**            {pulse.pacing.value.title()}\n"
         f"**Leaderboard**       {leaderboard}\n"
         f"**Giveaways**         ✅ {live} live · {scheduled} scheduled\n\n"
@@ -109,7 +110,7 @@ class CommunitySystemsView(ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return await PermissionService().check_admin_interaction(interaction)
 
-    @ui.button(label="◈ Guild Pulse", style=discord.ButtonStyle.primary)
+    @ui.button(label="◈ PLAYER LEGACY", style=discord.ButtonStyle.primary)
     async def pulse(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(
             embed=await pulse_admin_embed(self.guild, self.bot),
@@ -145,13 +146,13 @@ async def pulse_admin_embed(guild: discord.Guild, bot=None) -> discord.Embed:
         for key in ("message", "voice", "reaction", "event")
     )
     return EmbedBuilder.info(
-        "◈ Guild Pulse",
+        "◈ PLAYER LEGACY",
         f"**Status:** {_state(settings.enabled)}\n"
         f"**Pace:** {settings.pacing.value.title()}\n"
         f"**Tracked members:** {await _pulse_count(guild.id)}\n"
         f"**Max level:** {settings.max_level}\n\n"
         f"**XP sources**\n{sources}\n\n"
-        "Use **My Pulse** or **Leaderboard** to preview the member experience.",
+        "Use **My Legacy** or **Leaderboard** to preview the member experience.",
     )
 
 
@@ -187,7 +188,7 @@ class PulseAdminView(ui.View):
     async def configure(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(
             embed=EmbedBuilder.info(
-                "Configure XP Sources",
+                "Configure PLAYER LEGACY XP Sources",
                 "Choose a source to edit its XP amount, cooldown, and daily limit. "
                 "This panel is private to administrators.",
             ),
@@ -207,7 +208,7 @@ class PulseAdminView(ui.View):
             embed=await pulse_admin_embed(self.guild, self.bot), view=self
         )
 
-    @ui.button(label="📈 My Pulse", style=discord.ButtonStyle.primary, row=1)
+    @ui.button(label="📈 My Legacy", style=discord.ButtonStyle.primary, row=1)
     async def my_pulse(self, interaction: discord.Interaction, button: ui.Button):
         if not isinstance(interaction.user, discord.Member):
             return
@@ -227,12 +228,12 @@ class PulseAdminView(ui.View):
                 "Band Roles Synchronized",
                 f"Created: **{created}**\n"
                 f"Synchronization warnings: **{failed}**\n\n"
-                "Only bot-owned Guild Pulse roles were changed.",
+                "Only bot-owned PLAYER LEGACY milestone roles were changed.",
             ),
             view=self,
         )
 
-    @ui.button(label="🎛 Customize Pulse", style=discord.ButtonStyle.primary, row=3)
+    @ui.button(label="🎛 Customize PLAYER LEGACY", style=discord.ButtonStyle.primary, row=3)
     async def customize(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(
             embed=await pulse_customize_embed(self.guild, self.bot),
@@ -273,7 +274,7 @@ class PulseAdminView(ui.View):
         )
 
 
-class PulseSourceModal(ui.Modal, title="Configure Guild Pulse Sources"):
+class PulseSourceModal(ui.Modal, title="Configure PLAYER LEGACY Sources"):
     def __init__(self, parent, source: str, source_config: dict | None = None):
         super().__init__()
         self.parent_view = parent
@@ -283,13 +284,13 @@ class PulseSourceModal(ui.Modal, title="Configure Guild Pulse Sources"):
             **(source_config or {}).get(source, {}),
         }
         self.amount_input = ui.TextInput(
-            label="XP per award",
+            label="Legacy points per award",
             default=str(defaults.get("amount", 1)),
             required=True,
             max_length=10,
         )
         self.cap_input = ui.TextInput(
-            label="Daily XP cap per member",
+            label="Daily legacy points cap",
             default=str(defaults.get("daily_cap", 0)),
             required=True,
             max_length=12,
@@ -348,7 +349,7 @@ class PulseSourceModal(ui.Modal, title="Configure Guild Pulse Sources"):
             )
         except ValueError as exc:
             await interaction.response.send_message(
-                embed=EmbedBuilder.error("Invalid XP Settings", str(exc)),
+                embed=EmbedBuilder.error("Invalid Legacy Points Settings", str(exc)),
                 ephemeral=True,
             )
             return
@@ -357,8 +358,8 @@ class PulseSourceModal(ui.Modal, title="Configure Guild Pulse Sources"):
             return
         await interaction.response.send_message(
             embed=EmbedBuilder.success(
-                "XP Source Updated",
-                f"Saved **{self.source.title()}** XP amount, limits, and pacing controls.",
+                "Legacy Source Updated",
+                f"Saved **{self.source.title()}** legacy points, limits, and pacing controls.",
             ),
             ephemeral=True,
         )
@@ -393,7 +394,7 @@ class PulseSourceToggleButton(ui.Button):
         )
 
 
-class PulseEnabledSourcesModal(ui.Modal, title="Enable Guild Pulse Sources"):
+class PulseEnabledSourcesModal(ui.Modal, title="Enable PLAYER LEGACY Sources"):
     def __init__(self, parent, settings):
         super().__init__()
         self.parent_view = parent
@@ -433,7 +434,7 @@ class PulseEnabledSourcesModal(ui.Modal, title="Enable Guild Pulse Sources"):
             return
         await interaction.response.send_message(
             embed=EmbedBuilder.success(
-                "Pulse Sources Updated",
+                "PLAYER LEGACY Sources Updated",
                 f"Enabled sources: {', '.join(values)}.",
             ),
             ephemeral=True,
@@ -444,7 +445,7 @@ class PulseSourceSelect(ui.Select):
     def __init__(self, parent):
         self.parent_view = parent
         super().__init__(
-            placeholder="Choose an XP source to customize...",
+            placeholder="Choose a legacy points source to customize...",
             options=[
                 discord.SelectOption(label="Messages", value="message", emoji="💬"),
                 discord.SelectOption(label="Voice", value="voice", emoji="🎙️"),
@@ -468,10 +469,9 @@ class PulseSourceSelect(ui.Select):
 
 async def pulse_customize_embed(guild: discord.Guild, bot=None) -> discord.Embed:
     settings = await PulseService(bot).get_or_create_settings(guild)
-    brand = settings.brand_config or {}
     bands = settings.band_config or DEFAULT_BANDS
     band_lines = "\n".join(
-        f"• **{band.get('name', 'Signal')}** · L{band.get('min', 1)}–{band.get('max', 1)}"
+        f"• **{band.get('name', 'Milestone')}** · L{band.get('min', 1)}–{band.get('max', 1)}"
         for band in bands
     )
     source_lines = "\n".join(
@@ -481,13 +481,13 @@ async def pulse_customize_embed(guild: discord.Guild, bot=None) -> discord.Embed
         if source in {"message", "voice", "reaction", "event"}
     )
     return EmbedBuilder.info(
-        "🎛 Customize Guild Pulse",
-        f"**Display:** {settings.display_name}\n"
-        f"**Role prefix:** {brand.get('short_tag', 'Pulse')} {brand.get('symbol', '◈')}\n"
+        "🎛 Customize PLAYER LEGACY",
+        f"**Display:** {PLAYER_LEGACY_NAME}\n"
+        "**Role prefix:** None\n"
         f"**Maximum level:** {settings.max_level}\n\n"
         f"**Milestone achievement tags**\n{band_lines}\n\n"
         f"**XP source limits**\n{source_lines}\n\n"
-        "Only bot-owned Pulse roles are renamed or recolored automatically. "
+        "Only bot-owned PLAYER LEGACY milestone roles are renamed automatically. "
         "Team Leader and administrator-owned roles remain protected.",
     )
 
@@ -501,19 +501,28 @@ class PulseCustomizeView(ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return await PermissionService().check_admin_interaction(interaction)
 
-    @ui.button(label="🪪 General & Branding", style=discord.ButtonStyle.primary)
+    @ui.button(label="🪪 PLAYER LEGACY Settings", style=discord.ButtonStyle.primary)
     async def general(self, interaction: discord.Interaction, button: ui.Button):
-        settings = await PulseService(self.bot).get_or_create_settings(self.guild)
-        await interaction.response.send_modal(PulseGeneralModal(self, settings))
+        await interaction.response.send_message(
+            embed=EmbedBuilder.info(
+                "PLAYER LEGACY Settings",
+                f"**Display name:** {PLAYER_LEGACY_NAME}\n"
+                "**Maximum level:** 100\n"
+                "**Role prefix:** None\n\n"
+                "XP sources, XP values, progression, level requirements, "
+                "leaderboard calculations, and member data are unchanged.",
+            ),
+            ephemeral=True,
+        )
 
-    @ui.button(label="🏷 Edit Achievement Tag", style=discord.ButtonStyle.secondary)
+    @ui.button(label="🏷 Edit Milestone Role", style=discord.ButtonStyle.secondary)
     async def band(self, interaction: discord.Interaction, button: ui.Button):
         settings = await PulseService(self.bot).get_or_create_settings(self.guild)
         await interaction.response.send_message(
             embed=EmbedBuilder.info(
-                "Edit Achievement Tag",
-                "Select a milestone to edit its achievement name, level range, "
-                "color, and bot-managed role name.",
+                "Edit Milestone Role",
+                "Select a milestone to edit its display name and role color. "
+                "Its level range and progression remain unchanged.",
             ),
             view=PulseBandSelectView(self, settings),
             ephemeral=True,
@@ -523,90 +532,29 @@ class PulseCustomizeView(ui.View):
     async def reward(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(
             embed=EmbedBuilder.info(
-                "Set Milestone Reward Role",
+                "Set PLAYER LEGACY Milestone Role",
                 "Choose an existing safe role, then enter the level where members receive it.",
             ),
             view=PulseRewardRoleView(self),
             ephemeral=True,
         )
 
-    @ui.button(label="⚙ XP Source Limits", style=discord.ButtonStyle.secondary, row=1)
+    @ui.button(label="⚙ Legacy Points Limits", style=discord.ButtonStyle.secondary, row=1)
     async def sources(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(
             embed=EmbedBuilder.info(
-                "Configure XP Source Limits",
-                "Select Messages, Voice, Reactions, or Events to edit its points and daily cap.",
+                "Configure Legacy Points Sources",
+                "Select Messages, Voice, Reactions, or Events to edit legacy points and the daily cap.",
             ),
             view=PulseSourceSelectView(self),
             ephemeral=True,
         )
 
-    @ui.button(label="↩ Guild Pulse", style=discord.ButtonStyle.secondary, row=2)
+    @ui.button(label="↩ PLAYER LEGACY", style=discord.ButtonStyle.secondary, row=2)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(
             embed=await pulse_admin_embed(self.guild, self.bot),
             view=PulseAdminView(self.bot, self.guild),
-        )
-
-
-class PulseGeneralModal(ui.Modal, title="General Guild Pulse Settings"):
-    def __init__(self, parent, settings):
-        super().__init__()
-        self.parent_view = parent
-        brand = settings.brand_config or {}
-        self.display_input = ui.TextInput(
-            label="Pulse display name",
-            default=settings.display_name or "Pulse",
-            required=True,
-            max_length=50,
-        )
-        self.max_level_input = ui.TextInput(
-            label="Maximum level",
-            default=str(settings.max_level),
-            required=True,
-            max_length=4,
-        )
-        self.tag_input = ui.TextInput(
-            label="Role brand tag",
-            default=brand.get("short_tag", "Pulse"),
-            required=True,
-            max_length=50,
-        )
-        self.symbol_input = ui.TextInput(
-            label="Role symbol",
-            default=brand.get("symbol", "◈"),
-            required=True,
-            max_length=20,
-        )
-        for item in (self.display_input, self.max_level_input, self.tag_input, self.symbol_input):
-            self.add_item(item)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            settings = await PulseService(self.parent_view.bot).update_general_settings(
-                self.parent_view.guild,
-                interaction.user,
-                display_name=self.display_input.value,
-                max_level=int(self.max_level_input.value),
-                short_tag=self.tag_input.value,
-                symbol=self.symbol_input.value,
-            )
-            await PulseService(self.parent_view.bot).sync_band_roles(self.parent_view.guild)
-        except (ValueError, TypeError) as exc:
-            await interaction.response.send_message(
-                embed=EmbedBuilder.error("Invalid Pulse Settings", str(exc)),
-                ephemeral=True,
-            )
-            return
-        except Exception as exc:
-            await _pulse_modal_error(interaction, "general", exc)
-            return
-        await interaction.response.send_message(
-            embed=EmbedBuilder.success(
-                "Pulse Branding Updated",
-                f"Saved **{settings.display_name}** and synchronized bot-owned band roles.",
-            ),
-            ephemeral=True,
         )
 
 
@@ -629,7 +577,7 @@ class PulseBandSelect(ui.Select):
             placeholder="Select an achievement milestone...",
             options=[
                 discord.SelectOption(
-                    label=str(band.get("name", "Signal"))[:100],
+                    label=str(band.get("name", "Milestone"))[:100],
                     value=str(band.get("key")),
                     description=f"Levels {band.get('min', 1)}–{band.get('max', 1)}",
                 )
@@ -654,68 +602,34 @@ class PulseBandSelect(ui.Select):
         await interaction.response.send_modal(PulseBandModal(self.parent_view.parent_view, band))
 
 
-class PulseBandModal(ui.Modal, title="Edit Pulse Achievement"):
+class PulseBandModal(ui.Modal, title="Edit PLAYER LEGACY Milestone"):
     def __init__(self, parent, band):
         super().__init__()
         self.parent_view = parent
         self.band_key = band["key"]
+        self.minimum_level = int(band.get("min", 1))
+        self.maximum_level = int(band.get("max", 1))
         self.name_input = ui.TextInput(
-            label="Achievement tag",
-            default=band.get("name", "Signal"),
+            label="Milestone role name",
+            default=band.get("name", "Milestone"),
             required=True,
             max_length=60,
         )
-        self.minimum_input = ui.TextInput(
-            label="Minimum level",
-            default=str(band.get("min", 1)),
-            required=True,
-            max_length=4,
-        )
-        self.maximum_input = ui.TextInput(
-            label="Maximum level",
-            default=str(band.get("max", 1)),
-            required=True,
-            max_length=7,
-        )
-        self.role_input = ui.TextInput(
-            label="Bot-managed role name",
-            default=band.get("role_name", band.get("name", "Pulse Band")),
-            required=True,
-            max_length=80,
-        )
-        self.color_input = ui.TextInput(
-            label="Color hex",
-            default=f"#{int(band.get('color', 0x5865F2)):06X}",
-            required=True,
-            max_length=7,
-        )
-        for item in (
-            self.name_input,
-            self.minimum_input,
-            self.maximum_input,
-            self.role_input,
-            self.color_input,
-        ):
+        for item in (self.name_input,):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            color = self.color_input.value.strip().lstrip("#")
-            if len(color) != 6:
-                raise ValueError("Color must be a 6-digit hex value such as #22D3EE.")
             await PulseService(self.parent_view.bot).update_band_config(
                 self.parent_view.guild,
                 interaction.user,
                 self.band_key,
                 name=self.name_input.value,
-                minimum=int(self.minimum_input.value),
-                maximum=int(self.maximum_input.value),
-                role_name=self.role_input.value,
-                color=int(color, 16),
+                role_name=self.name_input.value,
             )
         except (ValueError, TypeError) as exc:
             await interaction.response.send_message(
-                embed=EmbedBuilder.error("Invalid Achievement Settings", str(exc)),
+                embed=EmbedBuilder.error("Invalid Milestone Settings", str(exc)),
                 ephemeral=True,
             )
             return
@@ -724,8 +638,8 @@ class PulseBandModal(ui.Modal, title="Edit Pulse Achievement"):
             return
         await interaction.response.send_message(
             embed=EmbedBuilder.success(
-                "Achievement Updated",
-                "The milestone card, level-up text, and bot-owned band role were synchronized.",
+                "Milestone Updated",
+                "The milestone name and existing role color were synchronized.",
             ),
             ephemeral=True,
         )
@@ -880,13 +794,13 @@ async def pulse_profile_embed(
     filled = round((data["current"] / max(1, data["needed"])) * 16)
     bar = "▰" * min(16, filled) + "░" * max(0, 16 - filled)
     return EmbedBuilder.info(
-        f"◈ {member.display_name}'s Pulse",
-        f"**Level {data['level']} · {data['band'].get('name', 'Signal')}**\n\n"
+        f"◈ {member.display_name}'s PLAYER LEGACY",
+        f"**Level {data['level']} · {data['band'].get('name', 'Milestone')}**\n\n"
         f"{bar}  **{data['current']} / {data['needed']} XP**\n\n"
         f"**Rank:** #{data['rank']}\n"
         f"**Last 7 days:** {data['seven_days']} XP\n"
         f"**Total XP:** {data['total']}\n\n"
-        f"**Next milestone:** Level {data['level'] + 1}",
+        f"**Next PLAYER LEGACY milestone:** Level {data['level'] + 1}",
     )
 
 
@@ -904,15 +818,15 @@ async def leaderboard_payload(
         if viewer:
             viewer_profile = await service.profile(guild, viewer)
     embed = discord.Embed(
-        title="✦ PULSE ORBIT  ·  TOP FIVE",
+        title="✦ PLAYER LEGACY  ·  TOP FIVE",
         description=(
-            "**GUILD PULSE · SIGNAL INDEX**\n"
-            "A visual map of the five signals moving this server forward."
+            "**PLAYER LEGACY · LEADERBOARD**\n"
+            "A live map of the five players moving this server forward."
         ),
         color=accent,
         timestamp=datetime.utcnow(),
     )
-    author = {"name": f"{settings.display_name or 'Guild Pulse'}  ·  LEADERBOARD"}
+    author = {"name": f"{PLAYER_LEGACY_NAME}  ·  LEADERBOARD"}
     if guild.icon:
         author["icon_url"] = guild.icon.url
         embed.set_thumbnail(url=guild.icon.url)
@@ -923,7 +837,7 @@ async def leaderboard_payload(
     )
     embed.set_image(url=f"attachment://{CARD_FILENAME}")
     embed.set_footer(
-        text="Guild Pulse  •  Top five updated live  •  Tap My Pulse for your path"
+        text="PLAYER LEGACY  •  Top five updated live  •  Tap My Legacy for your path"
     )
     return embed, discord.File(io.BytesIO(card), filename=CARD_FILENAME)
 
@@ -949,7 +863,7 @@ class PulseMemberView(ui.View):
             if isinstance(child, ui.Button):
                 child.custom_id = custom_id
 
-    @ui.button(label="📈 My Pulse", style=discord.ButtonStyle.primary)
+    @ui.button(label="📈 My Legacy", style=discord.ButtonStyle.primary)
     async def profile(self, interaction: discord.Interaction, button: ui.Button):
         if not isinstance(interaction.user, discord.Member):
             return
@@ -990,7 +904,7 @@ class PulseMemberView(ui.View):
     async def history(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(
             embed=EmbedBuilder.info(
-                "🕒 Pulse History",
+                "🕒 PLAYER LEGACY History",
                 "Recent XP history is available privately. Ledger details are not publicly exposed.",
             ),
             ephemeral=True,

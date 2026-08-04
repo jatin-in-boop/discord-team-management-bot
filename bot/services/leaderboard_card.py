@@ -115,7 +115,7 @@ async def render_top_five_card(
     viewer_id: int | None = None,
     viewer_profile: dict[str, Any] | None = None,
 ) -> bytes:
-    """Render an original, mobile-friendly Top 5 Guild Pulse card."""
+    """Render the mobile-friendly PLAYER LEGACY Top 5 card."""
     from PIL import Image, ImageDraw, ImageFilter
 
     rows = rows[:5]
@@ -130,8 +130,8 @@ async def render_top_five_card(
     gold = (247, 193, 73)
 
     # Keep the public and personal versions on the same canvas.  The public
-    # card still needs room for the full Pulse Path; shortening it caused the
-    # bottom milestone rail to overlap the current "New Signal" label when
+    # card still needs room for the full PLAYER LEGACY path; shortening it
+    # caused the bottom milestone rail to overlap the current role label when
     # Discord scaled the attachment down on mobile.
     height = 1510
     image = Image.new("RGB", (CARD_WIDTH, height), bg)
@@ -151,7 +151,7 @@ async def render_top_five_card(
     body = _font(28)
     tiny = _font(21)
 
-    draw.text((70, 55), "GUILD PULSE  /  SIGNAL INDEX", font=small, fill=teal)
+    draw.text((70, 55), "PLAYER LEGACY  /  LEADERBOARD", font=small, fill=teal)
     draw.text((70, 94), "TOP FIVE", font=title, fill=ink)
     draw.text(
         (70, 174),
@@ -161,7 +161,7 @@ async def render_top_five_card(
     )
     draw.text(
         (CARD_WIDTH - 70, 75),
-        f"{len(rows):02d} SIGNALS",
+        f"{len(rows):02d} PLAYERS",
         font=label,
         fill=gold,
         anchor="ra",
@@ -204,10 +204,10 @@ async def render_top_five_card(
         draw.text((cx, cy + diameter // 2 + 20), f"#{position + 1}", font=hero if position == 0 else value, fill=medal_color, anchor="ma")
         draw.text((cx, cy + diameter // 2 + 76), _fit_text(draw, name, label, 350), font=label, fill=ink, anchor="ma")
         draw.text((cx, cy + diameter // 2 + 115), f"LEVEL {row.current_level}  ·  {row.total_xp:,} XP", font=tiny, fill=muted, anchor="ma")
-        draw.text((cx, cy + diameter // 2 + 151), band.get("name", "Signal").upper(), font=tiny, fill=accent, anchor="ma")
+        draw.text((cx, cy + diameter // 2 + 151), band.get("name", "Milestone").upper(), font=tiny, fill=accent, anchor="ma")
 
     list_top = 705
-    draw.text((70, list_top), "RISING TIER", font=label, fill=teal)
+    draw.text((70, list_top), "RISING PLAYERS", font=label, fill=teal)
     draw.text((CARD_WIDTH - 70, list_top), "RANK  /  LEVEL  /  XP", font=tiny, fill=muted, anchor="ra")
     for offset, row in enumerate(rows[3:5], 3):
         y = list_top + 52 + (offset - 3) * 112
@@ -218,26 +218,26 @@ async def render_top_five_card(
         _rounded(draw, (70, y, CARD_WIDTH - 70, y + 88), panel, 18)
         _circle_avatar(image, member or type("Member", (), {"display_name": name})(), avatar_data[offset], (123, y + 44), 62, accent=accent)
         draw.text((180, y + 18), f"#{offset + 1}  {_fit_text(draw, name, label, 440)}", font=label, fill=ink)
-        draw.text((180, y + 52), band.get("name", "Signal"), font=tiny, fill=accent)
+        draw.text((180, y + 52), band.get("name", "Milestone"), font=tiny, fill=accent)
         draw.text((CARD_WIDTH - 100, y + 21), f"L{row.current_level}", font=value, fill=ink, anchor="ra")
         draw.text((CARD_WIDTH - 100, y + 56), f"{row.total_xp:,} XP", font=tiny, fill=muted, anchor="ra")
 
     path_top = 1000
     if viewer_profile:
-        path_title = f"YOUR PULSE PATH  /  RANK #{viewer_profile['rank']}"
+        path_title = f"YOUR PLAYER LEGACY PATH  /  RANK #{viewer_profile['rank']}"
         current_level = viewer_profile["level"]
         current_xp = viewer_profile["current"]
         needed = viewer_profile["needed"]
-        path_band = viewer_profile["band"].get("name", "Signal")
+        path_band = viewer_profile["band"].get("name", "Milestone")
     else:
-        path_title = "PULSE PATH  /  THE NEXT HORIZON"
+        path_title = "PLAYER LEGACY PATH  /  NEXT MILESTONE"
         current_level, current_xp, needed = 1, 0, 1
-        path_band = bands[0].get("name", "New Signal") if bands else "New Signal"
+        path_band = bands[0].get("name", "Milestone") if bands else "Milestone"
 
     path_bottom = height - 60
     _rounded(draw, (70, path_top, CARD_WIDTH - 70, path_bottom), panel_2, 28, outline=(48, 67, 96), width=2)
     draw.text((105, path_top + 34), path_title, font=label, fill=violet)
-    draw.text((105, path_top + 78), "CURRENT SIGNAL", font=tiny, fill=muted)
+    draw.text((105, path_top + 78), "CURRENT MILESTONE", font=tiny, fill=muted)
     draw.text((105, path_top + 108), path_band.upper(), font=hero, fill=ink)
     draw.text((CARD_WIDTH - 105, path_top + 115), f"LEVEL {current_level}", font=value, fill=gold, anchor="ra")
     bar_x, bar_y, bar_w, bar_h = 105, path_top + 190, CARD_WIDTH - 210, 28
@@ -256,7 +256,7 @@ async def render_top_five_card(
     # image height, so both public and personal cards remain stable.
     rail_title_y = bar_y + 112
     step_y = rail_title_y + 54
-    draw.text((105, rail_title_y), "NEXT SIGNALS", font=tiny, fill=muted)
+    draw.text((105, rail_title_y), "NEXT MILESTONES", font=tiny, fill=muted)
     rail_left, rail_right = 155, CARD_WIDTH - 155
     rail_span = max(1, len(milestones) - 1)
     for index, milestone in enumerate(milestones):
@@ -285,7 +285,7 @@ async def render_top_five_card(
             (x, step_y + 55),
             _fit_text(
                 draw,
-                milestone.get("name", "Signal").upper(),
+                milestone.get("name", "Milestone").upper(),
                 tiny,
                 max(120, (rail_right - rail_left) // max(1, rail_span) - 24),
             ),

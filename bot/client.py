@@ -43,6 +43,7 @@ class TeamManagementBot(commands.Bot):
         self.permission_service = PermissionService()
         self.persistent_views_registered = False
         self.pulse_view_guild_ids: set[int] = set()
+        self.pulse_presentation_guild_ids: set[int] = set()
         self.community_views_restored = False
         self.giveaway_views_restored = False
 
@@ -86,6 +87,24 @@ class TeamManagementBot(commands.Bot):
 
                 self.add_view(PulseMemberView(self, guild))
                 self.pulse_view_guild_ids.add(guild.id)
+            if guild.id not in self.pulse_presentation_guild_ids:
+                try:
+                    created, failed = await self.pulse_service.apply_default_presentation(
+                        guild, self.user.id if self.user else 0
+                    )
+                    self.pulse_presentation_guild_ids.add(guild.id)
+                    logger.info(
+                        "pulse.presentation_defaults_applied",
+                        guild_id=guild.id,
+                        manual_roles_created=created,
+                        manual_role_warnings=failed,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "pulse.presentation_defaults_failed",
+                        guild_id=guild.id,
+                        error=str(exc),
+                    )
             try:
                 refreshed = await self.pulse_service.refresh_leaderboard(
                     guild, force=first_view_registration
@@ -117,6 +136,23 @@ class TeamManagementBot(commands.Bot):
     async def on_guild_join(self, guild: discord.Guild):
         logger.info("guild.joined", guild_id=guild.id, name=guild.name)
         await self.setup_service.setup_guild(guild)
+        try:
+            created, failed = await self.pulse_service.apply_default_presentation(
+                guild, self.user.id if self.user else 0
+            )
+            self.pulse_presentation_guild_ids.add(guild.id)
+            logger.info(
+                "pulse.presentation_defaults_applied",
+                guild_id=guild.id,
+                manual_roles_created=created,
+                manual_role_warnings=failed,
+            )
+        except Exception as exc:
+            logger.exception(
+                "pulse.presentation_defaults_failed",
+                guild_id=guild.id,
+                error=str(exc),
+            )
 
     async def on_guild_remove(self, guild: discord.Guild):
         logger.info("guild.removed", guild_id=guild.id)
