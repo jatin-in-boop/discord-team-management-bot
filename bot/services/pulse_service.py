@@ -567,40 +567,16 @@ class PulseService:
         settings: PulseSettings,
     ) -> None:
         band = band_for_level(new_level, settings.band_config or DEFAULT_BANDS)
-        accent = int(band.get("color", 0xF5C451))
-        embed = discord.Embed(
-            title="✦ SIGNAL ASCENDED",
-            description=(
-                f"**Level {new_level} unlocked**\n"
-                f"{band.get('name', 'New Signal')} is now part of your identity in this guild.\n\n"
-                f"Your progression moved from **Level {old_level}** to **Level {new_level}**."
-            ),
-            color=accent,
-            timestamp=datetime.utcnow(),
+        announcement = (
+            f"🎉 Yoo {member.mention}, you leveled up! ✨\n"
+            f"🏆 Level **{new_level}** • **{band.get('name', 'Signal')}** 🎖️"
         )
-        author = {"name": f"{settings.display_name or 'Guild Pulse'}  ·  MILESTONE"}
-        if source_message.guild.icon:
-            author["icon_url"] = source_message.guild.icon.url
-        embed.set_author(**author)
-        embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(
-            name="NEW BAND",
-            value=f"**{band.get('name', 'Signal')}**",
-            inline=True,
-        )
-        embed.add_field(
-            name="NEXT FRONTIER",
-            value=f"Level **{new_level + 1}**",
-            inline=True,
-        )
-        embed.set_footer(text="Guild Pulse  •  Keep shaping the room")
         mentions = discord.AllowedMentions(
             users=True, roles=False, everyone=False, replied_user=False
         )
         try:
-            await source_message.channel.send(
-                content=member.mention,
-                embed=embed,
+            announcement_message = await source_message.channel.send(
+                content=announcement,
                 allowed_mentions=mentions,
             )
         except (discord.Forbidden, discord.HTTPException):
@@ -611,13 +587,13 @@ class PulseService:
             )
         else:
             asyncio.create_task(
-                self._delete_source_message_later(source_message),
-                name=f"pulse-delete-level-message-{source_message.id}",
+                self._delete_level_up_announcement_later(announcement_message),
+                name=f"pulse-delete-level-announcement-{announcement_message.id}",
             )
 
     @staticmethod
-    async def _delete_source_message_later(message: discord.Message) -> None:
-        await asyncio.sleep(20)
+    async def _delete_level_up_announcement_later(message: discord.Message) -> None:
+        await asyncio.sleep(10)
         try:
             await message.delete()
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
