@@ -69,6 +69,25 @@ MANUAL_DISPLAY_ROLE_GROUPS = (
         ),
     ),
 )
+MANUAL_DISPLAY_ROLE_COLORS = {
+    "squad_power": (
+        0x64748B,  # slate
+        0x22D3EE,  # cyan
+        0x3B82F6,  # blue
+        0x6366F1,  # indigo
+        0x8B5CF6,  # violet
+        0xA855F7,  # purple
+        0xD946EF,  # magenta
+        0xFACC15,  # gold
+    ),
+    "tournament_bracket": (
+        0x64748B,  # slate
+        0x22D3EE,  # cyan
+        0x8B5CF6,  # violet
+        0xF59E0B,  # amber
+        0xFB7185,  # rose
+    ),
+}
 PLAYER_LEGACY_NAME = "PLAYER LEGACY"
 DEFAULT_SOURCE_CONFIG = {
     "message": {"amount": 8, "cooldown": 60, "daily_cap": 600, "min_length": 12},
@@ -1028,24 +1047,41 @@ class PulseService:
         created = failed = 0
         roles_by_name = {role.name: role for role in guild.roles}
         created_roles: list[discord.Role] = []
-        for _, names in MANUAL_DISPLAY_ROLE_GROUPS:
-            for name in names:
+        for group_key, names in MANUAL_DISPLAY_ROLE_GROUPS:
+            colors = MANUAL_DISPLAY_ROLE_COLORS[group_key]
+            for index, name in enumerate(names):
+                colour = discord.Colour(colors[index])
                 role = roles_by_name.get(name)
                 if role is None:
                     try:
                         role = await guild.create_role(
                             name=name,
                             permissions=discord.Permissions.none(),
-                            colour=discord.Colour.default(),
+                            colour=colour,
                             hoist=False,
                             mentionable=False,
-                            reason="Create informational display role",
+                            reason="Create themed informational display role",
                         )
                         roles_by_name[name] = role
                         created += 1
                     except (discord.Forbidden, discord.HTTPException) as exc:
                         logger.warning(
                             "pulse.manual_display_role_create_failed",
+                            guild_id=guild.id,
+                            role_name=name,
+                            error=str(exc),
+                        )
+                        failed += 1
+                        continue
+                elif role.colour != colour:
+                    try:
+                        await role.edit(
+                            colour=colour,
+                            reason="Apply PLAYER LEGACY manual role palette",
+                        )
+                    except (discord.Forbidden, discord.HTTPException) as exc:
+                        logger.warning(
+                            "pulse.manual_display_role_colour_failed",
                             guild_id=guild.id,
                             role_name=name,
                             error=str(exc),
