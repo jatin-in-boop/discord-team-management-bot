@@ -191,6 +191,96 @@ Level bands provide identity without replacing the numeric level:
 
 Administrators may rename bands and assign presentation colors. Band changes must not alter XP.
 
+### 4.5 Bot-managed level band roles
+
+Every level band may have one corresponding Discord role. These are bot-managed
+identity roles owned by Guild Pulse, not merely untracked reward mappings.
+
+When Guild Pulse is enabled, the bot should offer to create the band roles
+automatically. The default role style should be polished and brand-aware:
+
+```text
+◈ 𝐍𝐄𝐖 𝐒𝐈𝐆𝐍𝐀𝐋
+◈ 𝐀𝐂𝐓𝐈𝐕𝐄 𝐏𝐑𝐄𝐒𝐄𝐍𝐂𝐄
+◈ 𝐂𝐎𝐌𝐌𝐔𝐍𝐈𝐓𝐘 𝐏𝐈𝐋𝐋𝐀𝐑
+```
+
+For each band, store and manage:
+
+- Band name.
+- Role name template.
+- Brand tag or prefix.
+- Unicode symbol.
+- Role color.
+- Hoist setting.
+- Mentionable setting.
+- Level range.
+- Role ID.
+- Whether the role is currently active.
+
+Administrators may change the brand name, band name, symbol, color palette,
+typography style, prefix, and separator. The bot must then synchronize every
+bot-owned band role:
+
+1. Recompute the final role name.
+2. Rename the Discord role in place.
+3. Apply the configured color and supported display settings.
+4. Update the managed-role registry.
+5. Report any resource that could not be synchronized.
+
+If `Community Pillar` changes to `Core Member`, the existing band role must be
+renamed to the new branded equivalent. The bot must not create a duplicate role
+merely because the display name changed.
+
+The formatter must keep names readable, respect Discord limits, fall back from
+unsupported decorative Unicode to plain text, and avoid `@everyone`, Team
+Leader wording, or protected team symbols.
+
+### 4.6 Level-up band transitions
+
+When a member crosses into a new level band:
+
+1. Recalculate the member’s current level and band from total XP.
+2. Find the active bot-managed role for the new band.
+3. Confirm that role exists and is manageable.
+4. Assign the new band role.
+5. Remove the previous bot-managed band role from the same Guild Pulse ladder.
+6. Leave all unrelated roles untouched.
+7. Record a band-transition event.
+8. Show the member the upgrade privately and optionally announce the milestone.
+
+The transition must be idempotent. If the member already has the correct band
+role, do not remove and re-add it.
+
+If a member skips multiple bands because of a manual XP award, assign only the
+final correct band role by default and summarize skipped milestones privately.
+The role state must always converge to one current band role.
+
+If a member loses a band role manually, the next XP event, profile refresh, or
+startup repair should restore the correct role when manageable.
+
+If the bot cannot manage the new role, it must not remove the old role. Instead,
+record a repair warning showing the exact role hierarchy or permission issue.
+
+### 4.7 Brand synchronization
+
+Branding is a first-class Guild Pulse setting rather than a hard-coded string:
+
+- Brand name.
+- Brand short tag.
+- Default role symbol.
+- Typography style.
+- Band color palette.
+- Separator style.
+
+Changing the brand updates all bot-owned Guild Pulse band roles and bot-owned
+progression reward roles. It must not automatically rename or recolor:
+
+- Existing administrator-created roles.
+- Team roles.
+- Team Leader roles.
+- Reaction roles owned by another panel.
+
 ---
 
 ## 5. XP sources
@@ -411,20 +501,34 @@ The default should be milestone-only to avoid channel noise.
 
 ### 7.4 Reward roles
 
-Administrators may map levels or bands to reward roles.
+Administrators may configure two kinds of progression roles:
+
+1. **Band identity roles** — one bot-managed role for the member’s current band.
+2. **Milestone reward roles** — optional roles granted at specific levels.
+
+Band identity roles are created and maintained by the bot when enabled.
+Milestone reward roles may use an existing administrator-created role or a
+bot-created custom role.
 
 The bot may:
 
-- Assign configured progression reward roles.
+- Create configured bot-owned band and milestone roles.
+- Assign the current band role.
+- Upgrade a member to the correct band role after a level transition.
+- Remove the previous mutually exclusive band role.
+- Assign configured milestone reward roles.
 - Remove older mutually exclusive progression roles if configured.
+- Rename and recolor bot-owned progression roles when branding changes.
 
 The bot must never:
 
 - Assign or remove Team Leader roles.
 - Modify roles not explicitly configured as progression rewards.
+- Rename or recolor administrator-owned roles automatically.
 - Move roles in the Discord hierarchy.
 
-Role validation must happen before saving and again before assignment.
+Role validation must happen before creation, before saving, before assignment,
+and during startup repair.
 
 ---
 
@@ -551,6 +655,8 @@ Actions:
 - `🧪 Preview`
 - `🏆 Leaderboard`
 - `🎖 Rewards`
+- `🎨 Brand & role style`
+- `🔄 Synchronize managed roles`
 - `🗓 Seasons`
 - `🧹 Recalculate`
 - `⏸ Pause XP`
@@ -563,9 +669,11 @@ The wizard should use progressive disclosure:
 2. Choose enabled XP sources.
 3. Configure channels and caps.
 4. Configure announcement behavior.
-5. Configure reward roles.
-6. Preview.
-7. Confirm.
+5. Configure level bands and band roles.
+6. Configure milestone reward roles.
+7. Configure brand and role styling.
+8. Preview.
+9. Confirm.
 
 Advanced settings should be hidden behind **`More controls`**.
 
@@ -1114,14 +1222,43 @@ Unique idempotency keys prevent duplicate awards when Discord events are deliver
 ### 15.5 Progression rewards
 
 - Guild ID.
+- Role kind: band identity or milestone reward.
 - Level or band threshold.
 - Discord role ID.
+- Role source: existing or bot-created.
+- Managed ownership.
+- Brand configuration JSON.
 - Mutually exclusive group, nullable.
 - Enabled state.
 
-Team Leader roles must be rejected during validation and must not be stored as progression rewards.
+Team Leader roles must be rejected during validation and must not be stored as
+progression rewards.
 
-### 15.6 Giveaway
+### 15.6 Managed role registry
+
+Use a shared registry for every role created by the bot:
+
+- Guild ID.
+- Discord role ID.
+- Owner type:
+  - `pulse_band`
+  - `pulse_reward`
+  - `reaction_panel`
+- Owner record ID.
+- Generated role name.
+- Brand tag.
+- Symbol.
+- Color.
+- Typography style.
+- Last synchronization status.
+- Last synchronization error, nullable.
+- Created and updated timestamps.
+
+The registry is the authority for safe rename, recolor, repair, and deletion.
+No feature may mutate a role owned by another feature. Team and Team Leader
+roles are explicitly excluded from this registry.
+
+### 15.7 Giveaway
 
 - Guild ID.
 - Public channel ID.
@@ -1355,6 +1492,18 @@ Never expose a member’s private eligibility failure to the public channel.
 - Text, voice, reactions, events, and manual XP can be enabled independently.
 - Anti-spam cooldowns and caps prevent obvious farming.
 - XP is stored in an auditable ledger.
+- The bot can create band identity roles with a consistent branded name, symbol,
+  typography style, and color.
+- Band names, symbols, colors, and brand tags can change without creating
+  duplicate roles.
+- Existing bot-owned band roles are renamed and recolored during brand
+  synchronization.
+- A member receives the correct current band role after level-up.
+- The previous band role is removed only after the new band role is successfully
+  assigned.
+- A member who skips multiple bands ends with exactly one current band role.
+- Missing or unmanageable band roles produce repair warnings and do not cause
+  the old valid role to be removed.
 - A member can view a polished progress card privately.
 - Level-up announcements are configurable.
 - Configured progression rewards can be assigned safely.

@@ -275,6 +275,9 @@ Notifications — choose any:
 Each role option contains:
 
 - Role ID.
+- Role source:
+  - Existing administrator-created role.
+  - Bot-created custom role owned by this panel.
 - Display label.
 - Description.
 - Emoji or icon.
@@ -282,6 +285,69 @@ Each role option contains:
 - Sort order.
 - Enabled/disabled state.
 - Whether the member may remove the role by selecting it again.
+
+### 6.3.1 Custom reaction roles
+
+Administrators must be able to create a custom role directly inside the
+reaction-role wizard instead of creating it manually in Discord.
+
+The role option flow offers:
+
+- `Use existing role`
+- `Create custom role`
+
+For a bot-created custom role, the administrator can configure:
+
+- Role name.
+- Brand tag or prefix.
+- Role color.
+- Unicode symbol or emoji prefix.
+- Whether the role is displayed separately in the member list.
+- Whether the role is mentionable.
+- Optional group assignment.
+
+The wizard shows a live preview:
+
+```text
+✦ 𝐏𝐂 𝐏𝐥𝐚𝐲𝐞𝐫
+Color: Ocean Blue
+Group: Platform · Single choice
+Managed by: This reaction-role panel
+```
+
+The bot should use a consistent Unicode style for names, but administrators
+may choose the visible label and brand prefix. Names must remain readable, fit
+Discord limits, and fall back to plain text if a requested character is
+unsupported.
+
+Bot-created reaction roles are owned resources. Store their role ID, owner
+type, source panel, creation reason, and current branding configuration.
+
+### 6.3.2 Custom role lifecycle
+
+For each bot-created reaction role, administrators can:
+
+- Rename it.
+- Change its color.
+- Change its symbol or brand tag.
+- Move it between groups.
+- Disable it temporarily.
+- Reuse it in a revised panel.
+- Delete it after explicit confirmation.
+
+Deleting a custom role must ask whether to:
+
+1. Delete only the panel option and preserve the Discord role.
+2. Delete the panel option and the bot-created Discord role.
+3. Delete the role and remove it from members who received it through this panel.
+
+The safe default is to preserve both the Discord role and member assignments.
+The bot must never delete an existing administrator-created role through this
+workflow.
+
+If the server brand changes, a brand synchronization action updates only
+bot-owned reaction roles. Existing administrator-created roles are not renamed
+or recolored automatically.
 
 The role’s actual Discord name must not be used as the only display label. Administrators should be able to present a friendly label while retaining the real role.
 
@@ -355,13 +421,16 @@ The administrator can also choose **No group** for independent roles.
 
 #### Step 3: Add roles
 
-Use a Discord role selector where available. For each selected role, configure:
+Offer both an existing-role selector and a `Create custom role` action. For each
+role option, configure:
 
 - Label.
 - Description.
 - Emoji.
 - Group.
 - Sort order.
+- Role source and ownership.
+- Optional custom name, symbol, and color when bot-created.
 
 The UI should show a live summary:
 
@@ -463,11 +532,15 @@ When a panel contains single-choice groups, the bot should remove the member’s
 Before saving or publishing:
 
 - The role must exist in the guild.
+- A bot-created custom role must be created successfully before the panel can
+  be published.
 - The bot must be able to manage the role.
 - The role must be below the bot’s highest role.
 - The role must not be managed by an integration.
 - The role must not be `@everyone`.
 - The role must not be a Team Leader role created under the existing protected policy.
+- A bot-owned role must be clearly identified as bot-owned in the administrator
+  configuration view.
 - The bot must have the required channel permissions.
 - The same role may not appear twice in one panel.
 - An emoji may not be reused within one emoji-reaction panel.
@@ -475,7 +548,24 @@ Before saving or publishing:
 
 If a role becomes unmanageable later because its hierarchy changes, the bot must leave it untouched, mark the option as unavailable, and show the administrator a repair warning.
 
-### 6.8 Member interaction feedback
+### 6.8 Role synchronization and repair
+
+On startup and when an administrator opens the reaction-role dashboard, validate
+every configured role option:
+
+1. Confirm the role still exists.
+2. Confirm the role belongs to the correct guild.
+3. Confirm ownership and panel association.
+4. Confirm the bot can manage it.
+5. Confirm its name and color match the saved brand configuration when the role
+   is bot-owned.
+6. Offer a repair action for missing, renamed, recolored, or moved resources.
+
+Brand changes should be applied transactionally where possible. If a rename
+succeeds but a color update fails, the configuration must show a repair warning
+instead of claiming that the role is synchronized.
+
+### 6.9 Member interaction feedback
 
 Every interaction should be private and concise:
 
@@ -558,6 +648,9 @@ Add a unique constraint on `(guild_id, message_id)` where appropriate.
 - Panel ID.
 - Group ID, nullable.
 - Role ID.
+- Role source: existing or bot-created.
+- Managed ownership: panel ID or administrator-owned.
+- Brand configuration JSON.
 - Label.
 - Description.
 - Emoji representation.
@@ -566,7 +659,28 @@ Add a unique constraint on `(guild_id, message_id)` where appropriate.
 
 Add a unique constraint preventing the same role from appearing more than once in a panel.
 
-### 7.5 Audit records
+### 7.5 Managed role registry
+
+Use a shared managed-role registry for bot-created roles:
+
+- Guild ID.
+- Discord role ID.
+- Owner type: `reaction_panel`, `pulse_band`, or `pulse_reward`.
+- Owner record ID.
+- Generated name.
+- Brand tag.
+- Color.
+- Symbol.
+- Creation reason.
+- Last synchronization status.
+- Last synchronization error, nullable.
+- Created and updated timestamps.
+
+This registry prevents one feature from accidentally renaming or deleting a
+role owned by another feature. Team roles and Team Leader roles remain outside
+this registry because of the existing protected-role policy.
+
+### 7.6 Audit records
 
 Record at minimum:
 
@@ -574,6 +688,8 @@ Record at minimum:
 - Goodbye configuration created, edited, enabled, disabled, tested, and reset.
 - Reaction-role panel created, edited, published, paused, resumed, and deleted.
 - Role option added, removed, or changed.
+- Custom reaction role created, renamed, recolored, synchronized, disabled, or
+  deleted.
 - Member role granted or removed by the panel.
 - Single-choice replacement events.
 - Failed actions and validation failures that require administrator attention.
@@ -724,6 +840,11 @@ Do not overload every message with decoration. The visual system should guide at
 - Selecting an independent role does not remove unrelated roles.
 - Buttons, select menus, and emoji reactions work according to the panel’s configured mode.
 - Members receive private confirmation.
+- An administrator can create a custom bot-owned role directly from the panel wizard.
+- Custom roles support configured names, brand tags, Unicode symbols, colors, and display settings.
+- Existing administrator-created roles can be selected without being renamed or recolored.
+- Bot-owned custom roles are renamed and recolored when the panel brand changes.
+- The bot never deletes an administrator-created role through panel management.
 - Unmanageable, missing, duplicate, or protected roles are rejected clearly.
 - Panel messages and role rules survive bot restarts.
 - Deleted messages, roles, or channels appear as repair warnings.
