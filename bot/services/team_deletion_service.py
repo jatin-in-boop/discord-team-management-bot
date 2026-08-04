@@ -26,7 +26,7 @@ class TeamDeletionService:
                     guild_id=guild.id,
                     executor_id=executor.id,
                     action="TEAM_DELETION_STARTED",
-                    metadata={"team_id": team.id, "display_name": team.display_name}
+                        audit_metadata={"team_id": team.id, "display_name": team.display_name}
                 )
 
                 # Resilient deletion - continue even if individual steps fail
@@ -73,7 +73,7 @@ class TeamDeletionService:
                     guild_id=guild.id,
                     executor_id=executor.id,
                     action="TEAM_DELETED",
-                    metadata={"team_id": team.id, "display_name": team.display_name, "errors": errors}
+                        audit_metadata={"team_id": team.id, "display_name": team.display_name, "errors": errors}
                 )
 
                 msg = f"{team.display_name} deleted." + (" Some resources may remain." if errors else "")
@@ -86,6 +86,6 @@ class TeamDeletionService:
                     guild_id=guild.id,
                     executor_id=executor.id,
                     action="TEAM_DELETION_FAILED",
-                    metadata={"team_id": team.id, "error": str(e)}
+                    audit_metadata={"team_id": team.id, "error": str(e)}
                 )
                 return DeletionResult(False, "Failed to completely delete team.")

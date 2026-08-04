@@ -131,7 +131,7 @@ class AddPlayerSelect(ui.UserSelect):
                     guild_id=self.guild.id,
                     executor_id=self.executor.id,
                     action="PLAYER_ADDED",
-                    metadata={"team_id": self.team.id, "player_id": player.id}
+                    audit_metadata={"team_id": self.team.id, "player_id": player.id}
                 )
 
             added_count += 1
@@ -214,7 +214,7 @@ class RemovePlayerSelect(ui.UserSelect):
                         guild_id=self.guild.id,
                         executor_id=self.executor.id,
                         action="PLAYER_REMOVED",
-                        metadata={"team_id": self.team.id, "player_id": player.id}
+                        audit_metadata={"team_id": self.team.id, "player_id": player.id}
                     )
                     removed_count += 1
 

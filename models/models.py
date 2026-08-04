@@ -145,7 +145,7 @@ class AuditLog(Base):
     guild_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("guilds.guild_id", ondelete="CASCADE"), nullable=False, index=True)
     executor_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    audit_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSON, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     guild: Mapped["Guild"] = relationship(back_populates="audit_logs")

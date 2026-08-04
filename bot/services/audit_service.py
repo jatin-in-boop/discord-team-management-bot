@@ -23,7 +23,7 @@ class AuditService:
                 guild_id=guild_id,
                 executor_id=executor_id,
                 action=action,
-                metadata=metadata or {},
+                audit_metadata=metadata or {},
                 timestamp=datetime.utcnow()
             )
             session.add(audit)

@@ -121,7 +121,7 @@ class TeamCreationService:
                     guild_id=guild.id,
                     executor_id=executor.id,
                     action="TEAM_CREATED",
-                    metadata={
+                    audit_metadata={
                         "team_number": team_number,
                         "sp_range": sp_range,
                         "team_role_id": team_role.id,
