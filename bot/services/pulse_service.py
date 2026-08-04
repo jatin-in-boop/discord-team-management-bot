@@ -778,7 +778,9 @@ class PulseService:
                 ).scalars().all()
             )
 
-    async def refresh_leaderboard(self, guild: discord.Guild) -> bool:
+    async def refresh_leaderboard(
+        self, guild: discord.Guild, *, force: bool = False
+    ) -> bool:
         """Refresh the configured leaderboard message in place, if configured."""
         from bot.views.community_systems import leaderboard_payload
 
@@ -788,10 +790,10 @@ class PulseService:
                     select(PulseSettings).where(PulseSettings.guild_id == guild.id)
                 )
             ).scalar_one_or_none()
-            if not settings or not settings.enabled or not settings.leaderboard_channel_id:
+            if not settings or not settings.leaderboard_channel_id:
                 return False
             now = datetime.utcnow()
-            if (
+            if not force and (
                 settings.leaderboard_last_success_at
                 and (now - settings.leaderboard_last_success_at).total_seconds()
                 < settings.leaderboard_refresh_interval
@@ -817,7 +819,7 @@ class PulseService:
                 except discord.NotFound:
                     pass
             if message:
-                if rendered == settings.leaderboard_rendered:
+                if not force and rendered == settings.leaderboard_rendered:
                     async with get_db_session() as session:
                         current = (
                             await session.execute(

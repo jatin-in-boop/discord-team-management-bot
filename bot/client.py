@@ -42,6 +42,7 @@ class TeamManagementBot(commands.Bot):
         )
         self.permission_service = PermissionService()
         self.persistent_views_registered = False
+        self.pulse_view_guild_ids: set[int] = set()
         self.community_views_restored = False
         self.giveaway_views_restored = False
 
@@ -79,6 +80,28 @@ class TeamManagementBot(commands.Bot):
             await self.restoration_service.restore_guild_panel(guild)
             repaired = await self.team_creation_service.repair_guild_permissions(guild)
             logger.info("team.permissions_repaired", guild_id=guild.id, resources=repaired)
+            first_view_registration = guild.id not in self.pulse_view_guild_ids
+            if first_view_registration:
+                from bot.views.community_systems import PulseMemberView
+
+                self.add_view(PulseMemberView(self, guild))
+                self.pulse_view_guild_ids.add(guild.id)
+            try:
+                refreshed = await self.pulse_service.refresh_leaderboard(
+                    guild, force=first_view_registration
+                )
+                if refreshed:
+                    logger.info(
+                        "pulse.leaderboard_view_restored",
+                        guild_id=guild.id,
+                        forced=first_view_registration,
+                    )
+            except Exception as exc:
+                logger.exception(
+                    "pulse.leaderboard_view_restore_failed",
+                    guild_id=guild.id,
+                    error=str(exc),
+                )
         if not self.community_views_restored:
             restored = await self.reaction_role_service.restore_views()
             self.community_views_restored = True

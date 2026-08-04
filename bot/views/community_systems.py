@@ -7,6 +7,7 @@ import discord
 from discord import ui
 from sqlalchemy import func, select
 
+from app_logging.logger import get_logger
 from bot.embeds.base import EmbedBuilder
 from bot.services.giveaway_service import GiveawayService
 from bot.services.leaderboard_card import CARD_FILENAME, render_top_five_card
@@ -27,9 +28,38 @@ from models.models import (
     XPSource,
 )
 
+logger = get_logger(__name__)
+
 
 def _state(value: bool) -> str:
     return "✅ Active" if value else "⏸ Paused"
+
+
+async def _pulse_modal_error(
+    interaction: discord.Interaction, modal_name: str, error: Exception
+) -> None:
+    logger.exception(
+        "pulse.modal_submit_failed",
+        modal=modal_name,
+        guild_id=interaction.guild.id if interaction.guild else None,
+        user_id=interaction.user.id,
+        error=str(error),
+    )
+    message = (
+        "I couldn't save that change. Please check the values and try again. "
+        "The failure was logged for diagnosis."
+    )
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except (discord.Forbidden, discord.HTTPException):
+        logger.exception(
+            "pulse.modal_error_response_failed",
+            modal=modal_name,
+            guild_id=interaction.guild.id if interaction.guild else None,
+        )
 
 
 async def community_systems_embed(guild: discord.Guild, bot=None) -> discord.Embed:
@@ -322,6 +352,9 @@ class PulseSourceModal(ui.Modal, title="Configure Guild Pulse Sources"):
                 ephemeral=True,
             )
             return
+        except Exception as exc:
+            await _pulse_modal_error(interaction, "source", exc)
+            return
         await interaction.response.send_message(
             embed=EmbedBuilder.success(
                 "XP Source Updated",
@@ -389,11 +422,15 @@ class PulseEnabledSourcesModal(ui.Modal, title="Enable Guild Pulse Sources"):
                 ephemeral=True,
             )
             return
-        await PulseService(self.parent_view.bot).configure(
-            self.parent_view.guild,
-            interaction.user,
-            sources=list(dict.fromkeys(values)),
-        )
+        try:
+            await PulseService(self.parent_view.bot).configure(
+                self.parent_view.guild,
+                interaction.user,
+                sources=list(dict.fromkeys(values)),
+            )
+        except Exception as exc:
+            await _pulse_modal_error(interaction, "enabled_sources", exc)
+            return
         await interaction.response.send_message(
             embed=EmbedBuilder.success(
                 "Pulse Sources Updated",
@@ -561,6 +598,9 @@ class PulseGeneralModal(ui.Modal, title="General Guild Pulse Settings"):
                 ephemeral=True,
             )
             return
+        except Exception as exc:
+            await _pulse_modal_error(interaction, "general", exc)
+            return
         await interaction.response.send_message(
             embed=EmbedBuilder.success(
                 "Pulse Branding Updated",
@@ -679,6 +719,9 @@ class PulseBandModal(ui.Modal, title="Edit Pulse Achievement"):
                 ephemeral=True,
             )
             return
+        except Exception as exc:
+            await _pulse_modal_error(interaction, "achievement", exc)
+            return
         await interaction.response.send_message(
             embed=EmbedBuilder.success(
                 "Achievement Updated",
@@ -736,6 +779,9 @@ class PulseRewardLevelModal(ui.Modal, title="Set Milestone Reward Level"):
                 embed=EmbedBuilder.error("Invalid Milestone Role", str(exc)),
                 ephemeral=True,
             )
+            return
+        except Exception as exc:
+            await _pulse_modal_error(interaction, "milestone_role", exc)
             return
         await interaction.response.send_message(
             embed=EmbedBuilder.success(
@@ -891,27 +937,54 @@ async def leaderboard_embed(
 
 class PulseMemberView(ui.View):
     def __init__(self, bot, guild: discord.Guild):
-        super().__init__(timeout=300)
+        super().__init__(timeout=None)
         self.bot = bot
         self.guild = guild
+        button_ids = (
+            f"pulse:{guild.id}:profile",
+            f"pulse:{guild.id}:leaderboard",
+            f"pulse:{guild.id}:history",
+        )
+        for child, custom_id in zip(self.children, button_ids):
+            if isinstance(child, ui.Button):
+                child.custom_id = custom_id
 
     @ui.button(label="📈 My Pulse", style=discord.ButtonStyle.primary)
     async def profile(self, interaction: discord.Interaction, button: ui.Button):
-        if isinstance(interaction.user, discord.Member):
+        if not isinstance(interaction.user, discord.Member):
+            return
+        try:
             await interaction.response.edit_message(
                 embed=await pulse_profile_embed(self.guild, interaction.user, self.bot), view=self
             )
+        except Exception as exc:
+            logger.exception(
+                "pulse.profile_button_failed",
+                guild_id=self.guild.id,
+                user_id=interaction.user.id,
+                error=str(exc),
+            )
+            await _pulse_modal_error(interaction, "profile_button", exc)
 
     @ui.button(label="🏆 Leaderboard", style=discord.ButtonStyle.secondary)
     async def leaderboard(self, interaction: discord.Interaction, button: ui.Button):
-        payload = await leaderboard_payload(
-            self.guild, self.bot, interaction.user.id
-        )
-        await interaction.response.edit_message(
-            embed=payload[0],
-            attachments=[payload[1]],
-            view=self,
-        )
+        try:
+            payload = await leaderboard_payload(
+                self.guild, self.bot, interaction.user.id
+            )
+            await interaction.response.edit_message(
+                embed=payload[0],
+                attachments=[payload[1]],
+                view=self,
+            )
+        except Exception as exc:
+            logger.exception(
+                "pulse.leaderboard_button_failed",
+                guild_id=self.guild.id,
+                user_id=interaction.user.id,
+                error=str(exc),
+            )
+            await _pulse_modal_error(interaction, "leaderboard_button", exc)
 
     @ui.button(label="🕒 History", style=discord.ButtonStyle.secondary)
     async def history(self, interaction: discord.Interaction, button: ui.Button):
