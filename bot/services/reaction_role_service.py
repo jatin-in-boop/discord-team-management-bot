@@ -670,7 +670,7 @@ class ReactionRoleService:
     ) -> tuple[bool, str]:
         panel, options, groups = await self.panel_data(panel_id)
         option = next((item for item in options if item.id == option_id), None)
-        if not panel or not option or not option.enabled:
+        if not panel or not panel.enabled or not option or not option.enabled:
             return False, "This role option is unavailable."
         role = guild.get_role(option.role_id)
         if not role:
