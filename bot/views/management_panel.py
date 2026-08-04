@@ -2,6 +2,7 @@ import discord
 from bot.embeds.base import EmbedBuilder
 from app_logging.logger import get_logger
 from bot.services.permission_service import PermissionService
+from bot.modals.team_creation import TeamCreationModal
 
 logger = get_logger(__name__)
 
@@ -28,8 +29,6 @@ class ManagementPanelView(discord.ui.View):
 
     @discord.ui.button(label="➕ Create Team", style=discord.ButtonStyle.success, custom_id="create_team")
     async def create_team(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from bot.modals.team_creation import TeamCreationModal
-
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message(
                 embed=EmbedBuilder.error("Error", "This action can only be performed in a server."),
@@ -38,7 +37,14 @@ class ManagementPanelView(discord.ui.View):
             return
 
         modal = TeamCreationModal(self.bot, interaction.guild, interaction.user)
-        await interaction.response.send_modal(modal)
+        try:
+            await interaction.response.send_modal(modal)
+        except discord.NotFound:
+            logger.warning(
+                "management_panel.interaction_expired",
+                action="create_team",
+                interaction_id=interaction.id,
+            )
 
     @discord.ui.button(label="👥 Manage Players", style=discord.ButtonStyle.primary, custom_id="manage_players")
     async def manage_players(self, interaction: discord.Interaction, button: discord.ui.Button):
