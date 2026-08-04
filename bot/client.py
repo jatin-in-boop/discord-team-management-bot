@@ -6,6 +6,7 @@ from database.engine import init_db, close_db
 from bot.services.guild_setup import GuildSetupService
 from bot.services.panel_restoration import PanelRestorationService
 from bot.services.permission_service import PermissionService
+from bot.services.team_creation import TeamCreationService
 from bot.views.management_panel import ManagementPanelView
 
 logger = get_logger(__name__)
@@ -27,6 +28,7 @@ class TeamManagementBot(commands.Bot):
 
         self.setup_service = GuildSetupService(self)
         self.restoration_service = PanelRestorationService(self)
+        self.team_creation_service = TeamCreationService(self)
         self.permission_service = PermissionService()
         self.persistent_views_registered = False
 
@@ -61,6 +63,8 @@ class TeamManagementBot(commands.Bot):
         # 8-12. Load guild configurations, restore panels, validate resources
         for guild in self.guilds:
             await self.restoration_service.restore_guild_panel(guild)
+            repaired = await self.team_creation_service.repair_guild_permissions(guild)
+            logger.info("team.permissions_repaired", guild_id=guild.id, resources=repaired)
 
         logger.info("bot.startup.recovery_complete")
 

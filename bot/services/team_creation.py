@@ -155,14 +155,7 @@ class TeamCreationService:
             pass  # Non-critical
 
     async def _create_category(self, guild, name, team_role, leader_role):
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True),
-        }
-        for member in guild.members:
-            if member.guild_permissions.administrator:
-                overwrites[member] = discord.PermissionOverwrite(view_channel=True)
-
+        overwrites = self._base_private_overwrites(guild)
         overwrites[team_role] = discord.PermissionOverwrite(view_channel=True)
         overwrites[leader_role] = discord.PermissionOverwrite(view_channel=True)
 
@@ -175,10 +168,9 @@ class TeamCreationService:
         plan = await guild.create_text_channel(
             "📢｜plan",
             category=category,
-            overwrites={
-                team_role: discord.PermissionOverwrite(view_channel=True, read_message_history=True, send_messages=False),
-                leader_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True),
-            }
+            overwrites=self._channel_overwrites(
+                guild, team_role, leader_role, "plan"
+            ),
         )
         channels["plan"] = plan
 
@@ -186,10 +178,9 @@ class TeamCreationService:
         discussion = await guild.create_text_channel(
             "💬｜team-discussion",
             category=category,
-            overwrites={
-                team_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True),
-                leader_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True),
-            }
+            overwrites=self._channel_overwrites(
+                guild, team_role, leader_role, "discussion"
+            ),
         )
         channels["discussion"] = discussion
 
@@ -197,10 +188,9 @@ class TeamCreationService:
         opponents = await guild.create_text_channel(
             "🆚｜opponents-ids-and-hangers",
             category=category,
-            overwrites={
-                team_role: discord.PermissionOverwrite(view_channel=True, send_messages=False),
-                leader_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True),
-            }
+            overwrites=self._channel_overwrites(
+                guild, team_role, leader_role, "opponents"
+            ),
         )
         channels["opponents"] = opponents
 
@@ -208,13 +198,125 @@ class TeamCreationService:
         players = await guild.create_text_channel(
             "👤｜player-ids-and-hangers",
             category=category,
-            overwrites={
-                team_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True, add_reactions=True),
-            }
+            overwrites=self._channel_overwrites(
+                guild, team_role, leader_role, "players"
+            ),
         )
         channels["players"] = players
 
         return channels
+
+    def _base_private_overwrites(self, guild):
+        """Return the explicit allow-list shared by private team resources."""
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        }
+
+        if guild.me:
+            overwrites[guild.me] = discord.PermissionOverwrite(
+                view_channel=True,
+                read_message_history=True,
+                send_messages=True,
+                manage_channels=True,
+                manage_permissions=True,
+            )
+
+        for member in guild.members:
+            if member.guild_permissions.administrator:
+                overwrites[member] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    read_message_history=True,
+                    send_messages=True,
+                )
+
+        return overwrites
+
+    def _channel_overwrites(self, guild, team_role, leader_role, channel_type):
+        overwrites = self._base_private_overwrites(guild)
+        can_write = discord.PermissionOverwrite(
+            view_channel=True,
+            read_message_history=True,
+            send_messages=True,
+            attach_files=True,
+            embed_links=True,
+            add_reactions=True,
+        )
+        read_only = discord.PermissionOverwrite(
+            view_channel=True,
+            read_message_history=True,
+            send_messages=False,
+        )
+
+        if channel_type == "plan":
+            overwrites[team_role] = read_only
+            overwrites[leader_role] = can_write
+        elif channel_type == "opponents":
+            overwrites[team_role] = discord.PermissionOverwrite(
+                view_channel=True,
+                read_message_history=True,
+                send_messages=False,
+            )
+            overwrites[leader_role] = can_write
+        else:
+            overwrites[team_role] = can_write
+            overwrites[leader_role] = can_write
+
+        return overwrites
+
+    async def repair_guild_permissions(self, guild: discord.Guild) -> int:
+        """Repair visibility on existing team categories and channels."""
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(Team).where(Team.guild_id == guild.id)
+            )
+            teams = result.scalars().all()
+
+        repaired = 0
+        for team in teams:
+            team_role = guild.get_role(team.team_role_id)
+            leader_role = guild.get_role(team.team_leader_role_id)
+            category = guild.get_channel(team.category_id) if team.category_id else None
+
+            if not team_role or not leader_role:
+                logger.warning(
+                    "team_permissions.roles_missing",
+                    guild_id=guild.id,
+                    team_id=team.id,
+                )
+                continue
+
+            try:
+                if isinstance(category, discord.CategoryChannel):
+                    category_overwrites = self._base_private_overwrites(guild)
+                    category_overwrites[team_role] = discord.PermissionOverwrite(view_channel=True)
+                    category_overwrites[leader_role] = discord.PermissionOverwrite(view_channel=True)
+                    await category.edit(overwrites=category_overwrites)
+                    repaired += 1
+
+                channel_map = {
+                    "plan": team.plan_channel_id,
+                    "discussion": team.discussion_channel_id,
+                    "opponents": team.opponents_channel_id,
+                    "players": team.players_channel_id,
+                }
+                for channel_type, channel_id in channel_map.items():
+                    channel = guild.get_channel(channel_id) if channel_id else None
+                    if isinstance(channel, discord.TextChannel):
+                        await channel.edit(
+                            overwrites=self._channel_overwrites(
+                                guild, team_role, leader_role, channel_type
+                            )
+                        )
+                        repaired += 1
+            except discord.HTTPException as error:
+                logger.error(
+                    "team_permissions.repair_failed",
+                    guild_id=guild.id,
+                    team_id=team.id,
+                    error=str(error),
+                )
+
+        return repaired
 
     async def _cleanup_failed_creation(self, guild, team_role, leader_role, category, channels):
         """Rollback created Discord resources on failure."""
