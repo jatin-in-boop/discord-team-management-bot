@@ -291,7 +291,7 @@ class MessageConfigModal(ui.Modal):
             max_length=2048,
         )
         self.banner_input = ui.TextInput(
-            label="Banner image URL (optional)",
+            label="Banner URL (blank = default)",
             default=config.get("banner_url", ""),
             required=False,
             max_length=512,

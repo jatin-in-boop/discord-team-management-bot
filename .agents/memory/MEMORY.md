@@ -5,3 +5,4 @@
 - [PLAYER LEGACY presentation](player-legacy-presentation.md) — preserve live milestone role state; manual display roles stay outside Pulse automation.
 - [Community event delivery](community-event-delivery.md) — invite notices use mapped channels; audit activity is batched and noisy categories are opt-in.
 - [Alembic revision discipline](alembic-revision-discipline.md) — every migration revision ID must be unique and form one linear head before Railway starts.
+- [Community banner defaults](community-banner-defaults.md) — current welcome/goodbye assets are bundled attachments; custom banner URLs reset once per guild via a version marker.

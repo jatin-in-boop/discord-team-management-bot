@@ -28,9 +28,10 @@ logger = get_logger(__name__)
 
 ASSET_DIR = Path(__file__).resolve().parents[2] / "attached_assets"
 DEFAULT_BANNER_FILES = {
-    "welcome": "welcome_banner.jpg",
-    "goodbye": "goodbye_banner.jpg",
+    "welcome": "welcome_banner.gif",
+    "goodbye": "goodbye_banner.jpeg",
 }
+DEFAULT_BANNER_RESET_VERSION = "uploaded-community-banners-v1"
 
 WELCOME_DEFAULT = {
     "style": "embed",
@@ -300,17 +301,25 @@ class CommunityService:
                 goodbye_config, goodbye_changed = _upgrade_saved_default(
                     settings.goodbye_message_config, "goodbye"
                 )
+                banner_reset = settings.banner_defaults_reset_version != DEFAULT_BANNER_RESET_VERSION
+                if banner_reset:
+                    welcome_config["banner_url"] = ""
+                    goodbye_config["banner_url"] = ""
+                    settings.banner_defaults_reset_version = DEFAULT_BANNER_RESET_VERSION
+                    welcome_changed = True
+                    goodbye_changed = True
                 if welcome_changed:
                     settings.welcome_message_config = welcome_config
                 if goodbye_changed:
                     settings.goodbye_message_config = goodbye_config
-                if welcome_changed or goodbye_changed:
+                if welcome_changed or goodbye_changed or banner_reset:
                     await session.commit()
                 return settings
             settings = CommunitySettings(
                 guild_id=guild.id,
                 welcome_message_config=dict(WELCOME_DEFAULT),
                 goodbye_message_config=dict(GOODBYE_DEFAULT),
+                banner_defaults_reset_version=DEFAULT_BANNER_RESET_VERSION,
             )
             session.add(settings)
             await session.commit()
