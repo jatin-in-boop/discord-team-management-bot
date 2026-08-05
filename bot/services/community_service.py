@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
 
@@ -24,6 +25,12 @@ from models.models import (
 )
 
 logger = get_logger(__name__)
+
+ASSET_DIR = Path(__file__).resolve().parents[2] / "attached_assets"
+DEFAULT_BANNER_FILES = {
+    "welcome": "welcome_banner.jpg",
+    "goodbye": "goodbye_banner.jpg",
+}
 
 WELCOME_DEFAULT = {
     "style": "embed",
@@ -226,10 +233,12 @@ def build_config_embed(
     if merged.get("thumbnail") and getattr(member, "display_avatar", None):
         embed.set_thumbnail(url=member.display_avatar.url)
     banner_url = (merged.get("banner_url") or "").strip()
-    if not banner_url and getattr(guild, "banner", None):
-        banner_url = guild.banner.url
     if banner_url.startswith(("http://", "https://")):
         embed.set_image(url=banner_url)
+    elif _default_banner_path(kind).exists():
+        embed.set_image(url=f"attachment://{DEFAULT_BANNER_FILES[kind]}")
+    elif getattr(guild, "banner", None):
+        embed.set_image(url=guild.banner.url)
     embed.add_field(
         name="IDENTITY",
         value=(
@@ -257,6 +266,23 @@ def build_config_embed(
             inline=False,
         )
     return embed
+
+
+def _default_banner_path(kind: str) -> Path:
+    return ASSET_DIR / DEFAULT_BANNER_FILES[kind]
+
+
+def _banner_file(
+    config: dict[str, Any],
+    kind: str,
+) -> discord.File | None:
+    configured_url = str(config.get("banner_url", "") or "").strip()
+    if configured_url.startswith(("http://", "https://")):
+        return None
+    path = _default_banner_path(kind)
+    if path.exists():
+        return discord.File(str(path), filename=DEFAULT_BANNER_FILES[kind])
+    return None
 
 
 class CommunityService:
@@ -495,9 +521,11 @@ class CommunityService:
             else:
                 content = mention if config.get("mention", False) else None
             if config.get("style") == "embed":
+                banner_file = _banner_file(config, kind)
                 await channel.send(
                     content=content,
                     embed=build_config_embed(config, guild, member, kind, test=test),
+                    file=banner_file,
                     allowed_mentions=discord.AllowedMentions(
                         users=True, roles=False, everyone=False
                     ),
@@ -512,8 +540,10 @@ class CommunityService:
                     content = f"**{prefix.rstrip()}**\n{content}"
                 if config.get("mention", True):
                     content = f"{mention}\n{content}" if mention else content
+                banner_file = _banner_file(config, kind)
                 await channel.send(
                     content=content,
+                    file=banner_file,
                     allowed_mentions=discord.AllowedMentions(
                         users=True, roles=False, everyone=False
                     ),

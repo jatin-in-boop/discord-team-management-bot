@@ -143,10 +143,12 @@ class MessageSettingsView(ui.View):
             else f"**{member.display_name}**  has left the room."
         )
         from bot.services.community_service import build_config_embed
+        from bot.services.community_service import _banner_file
 
         await interaction.response.send_message(
             content=preview_content,
             embed=build_config_embed(config, self.guild, member, self.kind, test=True),
+            file=_banner_file(config, self.kind),
             allowed_mentions=discord.AllowedMentions(
                 users=True, roles=False, everyone=False
             ),

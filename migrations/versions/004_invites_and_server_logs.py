@@ -1,7 +1,7 @@
 """Add invite tracking and configurable server log destinations.
 
-Revision ID: 003
-Revises: 002
+Revision ID: 004
+Revises: 003
 """
 
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "003"
-down_revision: Union[str, Sequence[str], None] = "002"
+revision: str = "004"
+down_revision: Union[str, Sequence[str], None] = "003"
 branch_labels = None
 depends_on = None
 
@@ -62,10 +62,7 @@ def upgrade() -> None:
             kwargs["server_default"] = sa.false()
         elif default == {}:
             kwargs["server_default"] = sa.text("'{}'")
-        op.add_column(
-            "community_settings",
-            sa.Column(name, column_type, **kwargs),
-        )
+        op.add_column("community_settings", sa.Column(name, column_type, **kwargs))
 
 
 def downgrade() -> None:
