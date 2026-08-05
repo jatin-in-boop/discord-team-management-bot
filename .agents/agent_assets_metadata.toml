@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "MkhPqEgt3vBh9xNQs0exq"
+uri = "file://attached_assets/welcome_banner.jpg"
+type = "image"
+title = "Current Welcome Banner"
+description = "The uploaded welcome artwork currently used by default for both plain and embed welcome messages."
+
+[[outputs]]
+id = "n5ihLCT4yfX4tquiazrXQ"
+uri = "file://attached_assets/goodbye_banner.jpg"
+type = "image"
+title = "Current Goodbye Banner"
+description = "The generated cinematic farewell artwork currently used by default for both plain and embed goodbye messages."
