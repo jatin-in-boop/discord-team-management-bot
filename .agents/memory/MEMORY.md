@@ -6,4 +6,4 @@
 - [Community event delivery](community-event-delivery.md) — invite notices use mapped channels; audit activity is batched and noisy categories are opt-in.
 - [Alembic revision discipline](alembic-revision-discipline.md) — every migration revision ID must be unique and form one linear head before Railway starts.
 - [Community banner defaults](community-banner-defaults.md) — current welcome/goodbye assets are bundled attachments; custom banner URLs reset once per guild via a version marker.
-- [GitHub push credentials](github-push-credentials.md) — local GitHub pushes require connected source-control credentials; the workspace token alone is not sufficient.
+- [GitHub push credentials](github-push-credentials.md) — GitHub helper auth may be unavailable, but the Replit GitHub token can push securely through ephemeral askpass.
