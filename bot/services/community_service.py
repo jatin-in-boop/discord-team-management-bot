@@ -32,7 +32,7 @@ DEFAULT_BANNER_FILES = {
     "goodbye": "goodbye_banner.jpeg",
 }
 DEFAULT_BANNER_RESET_VERSION = "uploaded-community-banners-v1"
-DEFAULT_BANNER_LAYOUT_VERSION = "integrated-embed-banners-v1"
+DEFAULT_BANNER_LAYOUT_VERSION = "minimal-embed-banners-v3"
 
 WELCOME_DEFAULT = {
     "style": "embed",
@@ -45,9 +45,9 @@ WELCOME_DEFAULT = {
         "│ `03` Bring one good idea into the conversation\n"
         "╰─ *There is no spectator mode here.*"
     ),
-    "footer": "ARRIVAL PROTOCOL  •  Make the room better",
-    "thumbnail": True,
-    "mention": True,
+    "footer": "",
+    "thumbnail": False,
+    "mention": False,
     "banner_url": "",
 }
 
@@ -61,7 +61,7 @@ GOODBYE_DEFAULT = {
         "│ The imprint stays.\n"
         "╰─ *Until the paths cross again.*"
     ),
-    "footer": "DEPARTURE LOG  •  The story continues",
+    "footer": "",
     "thumbnail": False,
     "mention": False,
     "banner_url": "",
@@ -213,27 +213,12 @@ def build_config_embed(
     title = render_template(merged.get("title", ""), guild, member, kind)
     description = render_template(merged.get("description", ""), guild, member, kind)
     is_welcome = kind == "welcome"
-    accent = 0x2DD4A8 if is_welcome else 0x8B7CF6
+    accent = 0x2F80ED if is_welcome else 0x2563EB
     embed = discord.Embed(
         title=title or None,
-        description=description,
+        description=description or None,
         color=accent,
-        timestamp=datetime.utcnow(),
     )
-    author = {
-        "name": f"{guild.name.upper()}  //  "
-        f"{'ARRIVAL PROTOCOL' if is_welcome else 'DEPARTURE LOG'}"
-    }
-    if guild.icon:
-        author["icon_url"] = guild.icon.url
-    embed.set_author(**author)
-    footer = render_template(merged.get("footer", ""), guild, member, kind)
-    if footer:
-        embed.set_footer(text=footer)
-    if test:
-        embed.set_footer(text=f"TEST MESSAGE  •  {footer}" if footer else "TEST MESSAGE")
-    if merged.get("thumbnail") and getattr(member, "display_avatar", None):
-        embed.set_thumbnail(url=member.display_avatar.url)
     banner_url = (merged.get("banner_url") or "").strip()
     if banner_url.startswith(("http://", "https://")):
         embed.set_image(url=banner_url)
@@ -241,32 +226,6 @@ def build_config_embed(
         embed.set_image(url=f"attachment://{DEFAULT_BANNER_FILES[kind]}")
     elif getattr(guild, "banner", None):
         embed.set_image(url=guild.banner.url)
-    embed.add_field(
-        name="IDENTITY",
-        value=(
-            getattr(member, "mention", "New member")
-            if is_welcome
-            else getattr(member, "display_name", None) or getattr(member, "name", "Former member")
-        ),
-        inline=True,
-    )
-    embed.add_field(
-        name="ROSTER",
-        value=f"{guild.member_count or len(guild.members):,} members",
-        inline=True,
-    )
-    if is_welcome:
-        embed.add_field(
-            name="STATUS",
-            value="`ENTRY CONFIRMED`",
-            inline=False,
-        )
-    else:
-        embed.add_field(
-            name="STATUS",
-            value="`CHAPTER CLOSED`",
-            inline=False,
-        )
     return embed
 
 
@@ -313,6 +272,12 @@ class CommunityService:
                 if layout_upgrade:
                     welcome_config["style"] = "embed"
                     goodbye_config["style"] = "embed"
+                    welcome_config["footer"] = ""
+                    goodbye_config["footer"] = ""
+                    welcome_config["thumbnail"] = False
+                    goodbye_config["thumbnail"] = False
+                    welcome_config["mention"] = False
+                    goodbye_config["mention"] = False
                     settings.banner_layout_version = DEFAULT_BANNER_LAYOUT_VERSION
                     welcome_changed = True
                     goodbye_changed = True
@@ -496,25 +461,15 @@ class CommunityService:
         *,
         test: bool = False,
     ) -> tuple[bool, str]:
-        async with get_db_session() as session:
-            settings = (
-                await session.execute(
-                    select(CommunitySettings).where(CommunitySettings.guild_id == guild.id)
-                )
-            ).scalar_one_or_none()
-            if not settings:
-                return False, "Community settings are not configured."
-            enabled = settings.welcome_enabled if kind == "welcome" else settings.goodbye_enabled
-            channel_id = settings.welcome_channel_id if kind == "welcome" else settings.goodbye_channel_id
-            config = (
-                settings.welcome_message_config
-                if kind == "welcome"
-                else settings.goodbye_message_config
-            ) or (dict(WELCOME_DEFAULT) if kind == "welcome" else dict(GOODBYE_DEFAULT))
-            config, _ = _upgrade_saved_default(config, kind)
-            uses_builtin_card = config == (
-                WELCOME_DEFAULT if kind == "welcome" else GOODBYE_DEFAULT
-            )
+        settings = await CommunityService.get_or_create_settings(guild)
+        enabled = settings.welcome_enabled if kind == "welcome" else settings.goodbye_enabled
+        channel_id = settings.welcome_channel_id if kind == "welcome" else settings.goodbye_channel_id
+        config = (
+            settings.welcome_message_config
+            if kind == "welcome"
+            else settings.goodbye_message_config
+        ) or (dict(WELCOME_DEFAULT) if kind == "welcome" else dict(GOODBYE_DEFAULT))
+        config, _ = _upgrade_saved_default(config, kind)
         if not enabled and not test:
             return False, f"{kind.title()} messages are disabled."
         channel = guild.get_channel(channel_id) if channel_id else None
@@ -522,50 +477,14 @@ class CommunityService:
             await CommunityService.mark_status(guild.id, kind, "Destination channel is missing.")
             return False, "The configured destination channel is missing or unavailable."
         try:
-            member_name = getattr(member, "display_name", None) or getattr(member, "name", "Member")
-            mention = getattr(member, "mention", "") if kind == "welcome" else ""
-            description = render_template(
-                config.get("description", ""), guild, member, kind
+            banner_file = _banner_file(config, kind)
+            await channel.send(
+                embed=build_config_embed(config, guild, member, kind, test=test),
+                file=banner_file,
+                allowed_mentions=discord.AllowedMentions(
+                    users=True, roles=False, everyone=False
+                ),
             )
-            if kind == "welcome" and uses_builtin_card:
-                content = (
-                    f"{mention}  **entry confirmed**\n"
-                    f"`{guild.name.upper()} // ARRIVAL PROTOCOL COMPLETE`"
-                    if config.get("mention", True)
-                    else f"**entry confirmed**\n`{guild.name.upper()} // ARRIVAL PROTOCOL COMPLETE`"
-                )
-            elif kind == "goodbye" and uses_builtin_card:
-                content = f"**{member_name}**  has left the room."
-            else:
-                content = mention if config.get("mention", False) else None
-            if config.get("style") == "embed":
-                banner_file = _banner_file(config, kind)
-                await channel.send(
-                    content=content,
-                    embed=build_config_embed(config, guild, member, kind, test=test),
-                    file=banner_file,
-                    allowed_mentions=discord.AllowedMentions(
-                        users=True, roles=False, everyone=False
-                    ),
-                )
-            else:
-                prefix = "[TEST] " if test else ""
-                title = render_template(config.get("title", ""), guild, member, kind)
-                content = description
-                if title:
-                    content = f"**{prefix}{title}**\n{content}"
-                elif prefix:
-                    content = f"**{prefix.rstrip()}**\n{content}"
-                if config.get("mention", True):
-                    content = f"{mention}\n{content}" if mention else content
-                banner_file = _banner_file(config, kind)
-                await channel.send(
-                    content=content,
-                    file=banner_file,
-                    allowed_mentions=discord.AllowedMentions(
-                        users=True, roles=False, everyone=False
-                    ),
-                )
             await CommunityService.mark_status(guild.id, kind, None)
             return True, "Message sent."
         except discord.Forbidden:

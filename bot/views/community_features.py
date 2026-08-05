@@ -136,17 +136,10 @@ class MessageSettingsView(ui.View):
             else settings.goodbye_message_config
         )
         member = interaction.user
-        preview_content = (
-            f"{member.mention}  **entry confirmed**\n"
-            f"`{self.guild.name.upper()} // ARRIVAL PROTOCOL COMPLETE`"
-            if self.kind == "welcome"
-            else f"**{member.display_name}**  has left the room."
-        )
         from bot.services.community_service import build_config_embed
         from bot.services.community_service import _banner_file
 
         await interaction.response.send_message(
-            content=preview_content,
             embed=build_config_embed(config, self.guild, member, self.kind, test=True),
             file=_banner_file(config, self.kind),
             allowed_mentions=discord.AllowedMentions(
@@ -278,18 +271,6 @@ class MessageConfigModal(ui.Modal):
             max_length=4000,
             style=discord.TextStyle.paragraph,
         )
-        self.style_input = ui.TextInput(
-            label="Style: plain or embed",
-            default=config.get("style", "plain"),
-            required=True,
-            max_length=10,
-        )
-        self.footer_input = ui.TextInput(
-            label="Footer (optional)",
-            default=config.get("footer", ""),
-            required=False,
-            max_length=2048,
-        )
         self.banner_input = ui.TextInput(
             label="Banner URL (blank = default)",
             default=config.get("banner_url", ""),
@@ -299,8 +280,6 @@ class MessageConfigModal(ui.Modal):
         for item in (
             self.title_input,
             self.description_input,
-            self.style_input,
-            self.footer_input,
             self.banner_input,
         ):
             self.add_item(item)
@@ -317,20 +296,13 @@ class MessageConfigModal(ui.Modal):
                 ephemeral=True,
             )
             return
-        style = self.style_input.value.strip().lower()
-        if style not in {"plain", "embed"}:
-            await interaction.response.send_message(
-                embed=EmbedBuilder.error("Invalid Style", "Style must be `plain` or `embed`."),
-                ephemeral=True,
-            )
-            return
         config = {
-            "style": style,
+            "style": "embed",
             "title": self.title_input.value.strip(),
             "description": self.description_input.value.strip(),
-            "footer": self.footer_input.value.strip(),
-            "thumbnail": self.kind == "welcome",
-            "mention": self.kind == "welcome",
+            "footer": "",
+            "thumbnail": False,
+            "mention": False,
             "banner_url": self.banner_input.value.strip(),
         }
         ok, message = await CommunityService.save_message_config(
