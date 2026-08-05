@@ -32,19 +32,36 @@ DEFAULT_BANNER_FILES = {
     "goodbye": "goodbye_banner.jpeg",
 }
 DEFAULT_BANNER_RESET_VERSION = "uploaded-community-banners-v1"
-DEFAULT_BANNER_LAYOUT_VERSION = "minimal-embed-banners-v3"
+DEFAULT_BANNER_LAYOUT_VERSION = "minimal-embed-banners-v4"
+
+PREVIOUS_AUTO_TEXT_DEFAULTS = {
+    "welcome": {
+        "title": "WELCOME, {member_name}",
+        "description": (
+            "Your entry into **{server}** is confirmed.\n\n"
+            "╭─ **YOUR FIRST MOVES**\n"
+            "│ `01` Find your people and choose your spaces\n"
+            "│ `02` Read the room before you make your mark\n"
+            "│ `03` Bring one good idea into the conversation\n"
+            "╰─ *There is no spectator mode here.*"
+        ),
+    },
+    "goodbye": {
+        "title": "DEPARTURE LOG  ·  {member_name}",
+        "description": (
+            "**{member_name}** has closed their chapter in **{server}**.\n\n"
+            "╭─ **THE ROOM REMEMBERS**\n"
+            "│ Conversations continue.\n"
+            "│ The imprint stays.\n"
+            "╰─ *Until the paths cross again.*"
+        ),
+    },
+}
 
 WELCOME_DEFAULT = {
     "style": "embed",
-    "title": "WELCOME, {member_name}",
-    "description": (
-        "Your entry into **{server}** is confirmed.\n\n"
-        "╭─ **YOUR FIRST MOVES**\n"
-        "│ `01` Find your people and choose your spaces\n"
-        "│ `02` Read the room before you make your mark\n"
-        "│ `03` Bring one good idea into the conversation\n"
-        "╰─ *There is no spectator mode here.*"
-    ),
+    "title": "",
+    "description": "",
     "footer": "",
     "thumbnail": False,
     "mention": False,
@@ -53,14 +70,8 @@ WELCOME_DEFAULT = {
 
 GOODBYE_DEFAULT = {
     "style": "embed",
-    "title": "DEPARTURE LOG  ·  {member_name}",
-    "description": (
-        "**{member_name}** has closed their chapter in **{server}**.\n\n"
-        "╭─ **THE ROOM REMEMBERS**\n"
-        "│ Conversations continue.\n"
-        "│ The imprint stays.\n"
-        "╰─ *Until the paths cross again.*"
-    ),
+    "title": "",
+    "description": "",
     "footer": "",
     "thumbnail": False,
     "mention": False,
@@ -201,6 +212,15 @@ def _upgrade_saved_default(
     return current, changed
 
 
+def _is_previous_auto_text_default(config: dict[str, Any], kind: str) -> bool:
+    previous = PREVIOUS_AUTO_TEXT_DEFAULTS[kind]
+    return (
+        config.get("title") == previous["title"]
+        and config.get("description") == previous["description"]
+        and not str(config.get("banner_url", "") or "").strip()
+    )
+
+
 def build_config_embed(
     config: dict[str, Any],
     guild: discord.Guild,
@@ -270,6 +290,10 @@ class CommunityService:
                     goodbye_changed = True
                 layout_upgrade = settings.banner_layout_version != DEFAULT_BANNER_LAYOUT_VERSION
                 if layout_upgrade:
+                    if _is_previous_auto_text_default(welcome_config, "welcome"):
+                        welcome_config = dict(WELCOME_DEFAULT)
+                    if _is_previous_auto_text_default(goodbye_config, "goodbye"):
+                        goodbye_config = dict(GOODBYE_DEFAULT)
                     welcome_config["style"] = "embed"
                     goodbye_config["style"] = "embed"
                     welcome_config["footer"] = ""

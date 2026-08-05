@@ -14,3 +14,7 @@ also uploads it, and the user requested existing custom banners be reset once.
 **How to apply:** Change the reset or layout version whenever intentionally
 replacing the default assets or presentation, and keep sends using the same
 attachment helper.
+
+The minimal embed contract is title, user-authored message, and banner only;
+automatic identity, status, timestamps, footers, and boilerplate copy are not
+part of the rendered community message.
