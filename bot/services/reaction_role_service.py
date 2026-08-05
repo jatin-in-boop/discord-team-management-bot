@@ -18,6 +18,7 @@ from models.models import (
     ReactionRoleGroup,
     ReactionRoleOption,
     ReactionRolePanel,
+    PresentationMode,
     RoleSource,
     SelectionMode,
     TogglePolicy,
@@ -85,6 +86,250 @@ class ReactionRoleService:
                 {"panel_id": panel.id, "name": panel.name, "channel_id": channel_id},
             )
             return panel
+
+    async def update_panel(
+        self,
+        guild: discord.Guild,
+        executor: discord.Member,
+        panel_id: int,
+        *,
+        name: str,
+        title: str,
+        description: str,
+        mode: str,
+        select_placeholder: str = "",
+        channel_id: Optional[int] = None,
+    ) -> tuple[bool, str]:
+        try:
+            presentation_mode = PresentationMode(mode)
+        except ValueError:
+            return False, "Choose buttons, select menu, or emoji reactions."
+        if not name.strip() or not title.strip() or not description.strip():
+            return False, "Panel name, title, and description are required."
+        async with get_db_session() as session:
+            panel = (
+                await session.execute(
+                    select(ReactionRolePanel).where(
+                        ReactionRolePanel.id == panel_id,
+                        ReactionRolePanel.guild_id == guild.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if not panel:
+                return False, "Panel not found."
+            old_channel_id = panel.channel_id
+            old_message_id = panel.message_id
+            destination_changed = channel_id is not None and channel_id != old_channel_id
+            if channel_id is not None:
+                channel = guild.get_channel(channel_id)
+                if not isinstance(channel, discord.TextChannel):
+                    return False, "Choose an available text channel for the panel."
+            enabled_options = list(
+                (
+                    await session.execute(
+                        select(ReactionRoleOption).where(
+                            ReactionRoleOption.panel_id == panel_id,
+                            ReactionRoleOption.enabled.is_(True),
+                        )
+                    )
+                ).scalars().all()
+            )
+            option_count = (
+                await session.execute(
+                    select(func.count(ReactionRoleOption.id)).where(
+                        ReactionRoleOption.panel_id == panel_id,
+                        ReactionRoleOption.enabled.is_(True),
+                    )
+                )
+            ).scalar_one()
+            grouped_counts: dict[Optional[int], int] = defaultdict(int)
+            for option in enabled_options:
+                grouped_counts[option.group_id] += 1
+            component_count = len(grouped_counts)
+            if presentation_mode == PresentationMode.BUTTONS and option_count > 20:
+                return False, "Buttons support up to 20 enabled role options."
+            if presentation_mode == PresentationMode.SELECT and (
+                component_count > 5
+                or any(count > 25 for count in grouped_counts.values())
+            ):
+                return False, "Select-menu mode supports up to five menus and 25 options per menu."
+            if presentation_mode == PresentationMode.REACTIONS and option_count > 20:
+                return False, "Emoji reaction mode supports up to 20 enabled role options."
+            panel.name = name.strip()[:100]
+            panel.title = title.strip()[:256]
+            panel.description = description.strip()[:4000]
+            panel.presentation_mode = presentation_mode
+            if channel_id is not None:
+                panel.channel_id = channel_id
+            if destination_changed:
+                panel.message_id = None
+            appearance = dict(panel.appearance or {})
+            if select_placeholder.strip():
+                appearance["select_placeholder"] = select_placeholder.strip()[:150]
+            else:
+                appearance.pop("select_placeholder", None)
+            panel.appearance = appearance
+            panel.updated_by = executor.id
+            await session.commit()
+        if destination_changed and old_message_id and old_channel_id:
+            old_channel = guild.get_channel(old_channel_id)
+            if isinstance(old_channel, discord.TextChannel):
+                try:
+                    old_message = await old_channel.fetch_message(old_message_id)
+                    await old_message.delete()
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    logger.warning(
+                        "reaction_role.old_panel_message_cleanup_failed",
+                        guild_id=guild.id,
+                        panel_id=panel_id,
+                    )
+        await AuditService.log_action(
+            guild.id,
+            executor.id,
+            "REACTION_PANEL_UPDATED",
+            {"panel_id": panel_id, "mode": presentation_mode.value},
+        )
+        return True, "Panel settings saved. Publish the panel to apply the changes."
+
+    async def delete_group(
+        self,
+        guild: discord.Guild,
+        executor: discord.Member,
+        group_id: int,
+    ) -> tuple[bool, str]:
+        async with get_db_session() as session:
+            group = (
+                await session.execute(
+                    select(ReactionRoleGroup)
+                    .join(ReactionRolePanel, ReactionRoleGroup.panel_id == ReactionRolePanel.id)
+                    .where(
+                        ReactionRoleGroup.id == group_id,
+                        ReactionRolePanel.guild_id == guild.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if not group:
+                return False, "Group not found."
+            panel_id = group.panel_id
+            await session.execute(
+                ReactionRoleOption.__table__.update()
+                .where(ReactionRoleOption.group_id == group_id)
+                .values(group_id=None)
+            )
+            await session.delete(group)
+            panel = (
+                await session.execute(
+                    select(ReactionRolePanel).where(ReactionRolePanel.id == panel_id)
+                )
+            ).scalar_one()
+            panel.updated_by = executor.id
+            await session.commit()
+        await AuditService.log_action(
+            guild.id,
+            executor.id,
+            "REACTION_ROLE_GROUP_DELETED",
+            {"panel_id": panel_id, "group_id": group_id, "options_preserved": True},
+        )
+        return True, "Group deleted. Its role options were preserved as independent options."
+
+    async def update_group(
+        self,
+        guild: discord.Guild,
+        executor: discord.Member,
+        group_id: int,
+        *,
+        name: str,
+        description: str,
+        selection_mode: str,
+        toggle_policy: str,
+        required: bool,
+        max_selections: Optional[int],
+    ) -> tuple[bool, str]:
+        try:
+            selection = SelectionMode(selection_mode)
+            toggle = TogglePolicy(toggle_policy)
+        except ValueError:
+            return False, "Choose valid selection and toggle rules."
+        if not name.strip():
+            return False, "Group name is required."
+        if max_selections is not None and max_selections < 1:
+            return False, "Maximum selections must be at least 1."
+        if selection == SelectionMode.SINGLE:
+            max_selections = 1
+        async with get_db_session() as session:
+            group = (
+                await session.execute(
+                    select(ReactionRoleGroup)
+                    .join(ReactionRolePanel, ReactionRoleGroup.panel_id == ReactionRolePanel.id)
+                    .where(
+                        ReactionRoleGroup.id == group_id,
+                        ReactionRolePanel.guild_id == guild.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if not group:
+                return False, "Group not found."
+            group.name = name.strip()[:100]
+            group.description = description.strip()[:1000] or None
+            group.selection_mode = selection
+            group.toggle_policy = toggle
+            group.required = required
+            group.max_selections = max_selections
+            panel = (
+                await session.execute(
+                    select(ReactionRolePanel).where(ReactionRolePanel.id == group.panel_id)
+                )
+            ).scalar_one()
+            panel.updated_by = executor.id
+            await session.commit()
+        await AuditService.log_action(
+            guild.id,
+            executor.id,
+            "REACTION_ROLE_GROUP_UPDATED",
+            {"panel_id": panel.id, "group_id": group_id},
+        )
+        return True, "Group settings saved. Publish the panel to apply the changes."
+
+    async def update_option(
+        self,
+        guild: discord.Guild,
+        executor: discord.Member,
+        option_id: int,
+        *,
+        label: str,
+        description: str,
+    ) -> tuple[bool, str]:
+        if not label.strip():
+            return False, "Role option name is required."
+        async with get_db_session() as session:
+            option = (
+                await session.execute(
+                    select(ReactionRoleOption)
+                    .join(ReactionRolePanel, ReactionRoleOption.panel_id == ReactionRolePanel.id)
+                    .where(
+                        ReactionRoleOption.id == option_id,
+                        ReactionRolePanel.guild_id == guild.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if not option:
+                return False, "Role option not found."
+            option.label = label.strip()[:100]
+            option.description = description.strip()[:100] or None
+            panel = (
+                await session.execute(
+                    select(ReactionRolePanel).where(ReactionRolePanel.id == option.panel_id)
+                )
+            ).scalar_one()
+            panel.updated_by = executor.id
+            await session.commit()
+        await AuditService.log_action(
+            guild.id,
+            executor.id,
+            "REACTION_ROLE_OPTION_UPDATED",
+            {"panel_id": panel.id, "option_id": option_id},
+        )
+        return True, "Role option saved. Publish the panel to apply the changes."
 
     async def add_existing_role(
         self,
@@ -412,7 +657,12 @@ class ReactionRoleService:
         await self.sync_managed_roles(guild, panel_id)
         panel, options, groups = await self.panel_data(panel_id)
         view = ReactionRolePanelView(
-            self.bot, panel.id, options, groups, panel.presentation_mode.value
+            self.bot,
+            panel.id,
+            options,
+            groups,
+            panel.presentation_mode.value,
+            (panel.appearance or {}).get("select_placeholder", ""),
         )
         message: Optional[discord.Message] = None
         if panel.message_id:
@@ -422,6 +672,18 @@ class ReactionRoleService:
                 message = None
         try:
             if message:
+                try:
+                    await message.clear_reactions()
+                except discord.HTTPException:
+                    logger.info(
+                        "reaction_role.reaction_cleanup_skipped",
+                        guild_id=guild.id,
+                        panel_id=panel_id,
+                    )
+                    await self._mark_repair(
+                        panel_id,
+                        "Discord could not clear stale reactions from the existing panel message.",
+                    )
                 await message.edit(
                     embed=panel_embed(panel, options, groups),
                     view=view if panel.presentation_mode.value != "reactions" else None,
@@ -865,7 +1127,12 @@ class ReactionRoleService:
                 if panel.presentation_mode.value != "reactions":
                     self.bot.add_view(
                         ReactionRolePanelView(
-                            self.bot, panel.id, options, groups, panel.presentation_mode.value
+                            self.bot,
+                            panel.id,
+                            options,
+                            groups,
+                            panel.presentation_mode.value,
+                            (panel.appearance or {}).get("select_placeholder", ""),
                         )
                     )
                 restored += 1

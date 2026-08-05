@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +26,14 @@ from models.models import (
 )
 
 logger = get_logger(__name__)
+
+
+async def _delete_message_after(message: discord.Message, delay: float) -> None:
+    await asyncio.sleep(delay)
+    try:
+        await message.delete()
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        return
 
 ASSET_DIR = Path(__file__).resolve().parents[2] / "attached_assets"
 DEFAULT_BANNER_FILES = {
@@ -506,13 +515,20 @@ class CommunityService:
             )
             banner_file = _banner_file(config, kind)
             await channel.send(
-                content=mention or None,
                 embed=build_config_embed(config, guild, member, kind, test=test),
                 file=banner_file,
                 allowed_mentions=discord.AllowedMentions(
                     users=True, roles=False, everyone=False
                 ),
             )
+            if mention:
+                ghost_ping = await channel.send(
+                    content=mention,
+                    allowed_mentions=discord.AllowedMentions(
+                        users=True, roles=False, everyone=False
+                    ),
+                )
+                asyncio.create_task(_delete_message_after(ghost_ping, 2))
             await CommunityService.mark_status(guild.id, kind, None)
             return True, "Message sent."
         except discord.Forbidden:

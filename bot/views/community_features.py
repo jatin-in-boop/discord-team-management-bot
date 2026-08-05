@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import discord
@@ -141,7 +142,6 @@ class MessageSettingsView(ui.View):
 
         mention = getattr(member, "mention", "") or f"<@{member.id}>"
         await interaction.response.send_message(
-            content=mention,
             embed=build_config_embed(config, self.guild, member, self.kind, test=True),
             file=_banner_file(config, self.kind),
             allowed_mentions=discord.AllowedMentions(
@@ -149,6 +149,19 @@ class MessageSettingsView(ui.View):
             ),
             ephemeral=True,
         )
+        ghost_ping = await interaction.followup.send(
+            content=mention,
+            allowed_mentions=discord.AllowedMentions(
+                users=True, roles=False, everyone=False
+            ),
+            ephemeral=True,
+            wait=True,
+        )
+        await asyncio.sleep(2)
+        try:
+            await ghost_ping.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
 
     @ui.button(label="🔘 Enable / Disable", style=discord.ButtonStyle.success)
     async def toggle(self, interaction: discord.Interaction, button: ui.Button):

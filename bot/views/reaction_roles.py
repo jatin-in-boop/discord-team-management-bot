@@ -24,6 +24,22 @@ from models.models import (
 logger = get_logger(__name__)
 
 
+async def _republish_after_save(
+    editor: "PanelEditorView",
+    ok: bool,
+    message: str,
+) -> tuple[bool, str]:
+    if not ok:
+        return ok, message
+    published, publish_message, _ = await editor.service.publish(
+        editor.guild,
+        editor.panel.id,
+    )
+    if not published:
+        return False, f"{message} Publish failed: {publish_message}"
+    return True, f"{message} {publish_message}"
+
+
 def panel_embed(
     panel: ReactionRolePanel,
     options: list[ReactionRoleOption],
@@ -44,6 +60,8 @@ def panel_embed(
         if group and group.selection_mode == SelectionMode.SINGLE:
             heading += " — choose one"
         lines = []
+        if group and group.description:
+            lines.append(group.description)
         for index, option in enumerate(group_options):
             prefix = f"{option.emoji or DEFAULT_REACTION_EMOJIS[index % len(DEFAULT_REACTION_EMOJIS)]} "
             detail = f" — {option.description}" if option.description else ""
@@ -61,6 +79,7 @@ class ReactionRolePanelView(ui.View):
         options: list[ReactionRoleOption],
         groups: dict[int, ReactionRoleGroup],
         presentation_mode: str = "buttons",
+        select_placeholder: str = "",
     ):
         super().__init__(timeout=None)
         self.bot = bot
@@ -68,6 +87,7 @@ class ReactionRolePanelView(ui.View):
         self.options = options
         self.groups = groups
         self.presentation_mode = presentation_mode
+        self.select_placeholder = select_placeholder
         self.service = ReactionRoleService(bot)
         self._build_components()
 
@@ -83,7 +103,12 @@ class ReactionRolePanelView(ui.View):
             if self.presentation_mode == "select":
                 self.add_item(
                     ReactionRoleSelect(
-                        self.bot, self.panel_id, items, group, self.service
+                        self.bot,
+                        self.panel_id,
+                        items,
+                        group,
+                        self.service,
+                        self.select_placeholder,
                     )
                 )
             else:
@@ -132,7 +157,7 @@ class ReactionRolePanelView(ui.View):
 
 
 class ReactionRoleSelect(ui.Select):
-    def __init__(self, bot, panel_id, options, group, service):
+    def __init__(self, bot, panel_id, options, group, service, panel_placeholder=""):
         self.bot = bot
         self.panel_id = panel_id
         self.group = group
@@ -140,7 +165,10 @@ class ReactionRoleSelect(ui.Select):
         selection_mode = group.selection_mode if group else SelectionMode.MULTIPLE
         max_values = 1 if selection_mode == SelectionMode.SINGLE else min(len(options), 25)
         super().__init__(
-            placeholder=(group.name if group else "Choose your roles")[:150],
+            placeholder=(
+                panel_placeholder
+                or (group.name if group else "Choose your roles")
+            )[:150],
             min_values=1,
             max_values=max_values,
             options=[
@@ -377,6 +405,7 @@ class PanelEditorView(ui.View):
         self.groups = groups
         self.service = ReactionRoleService(bot)
         self.selected_option_id = None
+        self.selected_group_id = None
         if groups:
             self.add_item(EditorGroupSelect(self))
         self.add_item(EditorRoleSelect(self))
@@ -403,7 +432,24 @@ class PanelEditorView(ui.View):
         return EmbedBuilder.info(
             f"Edit Panel: {self.panel.name}",
             f"Channel: <#{self.panel.channel_id}>\nMode: **{self.panel.presentation_mode.value}**\n\n"
+            f"Menu placeholder: **{(self.panel.appearance or {}).get('select_placeholder', 'Not set')}**\n\n"
             f"**Groups**\n{group_summary}\n\n**Role options**\n{option_summary[:2500]}",
+        )
+
+    @ui.button(label="✏️ Edit Panel", style=discord.ButtonStyle.primary, row=3)
+    async def edit_panel(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(PanelDetailsModal(self))
+
+    @ui.button(label="🔁 Change Mode", style=discord.ButtonStyle.primary, row=3)
+    async def change_mode(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_message(
+            embed=EmbedBuilder.info(
+                "Change Panel Mode",
+                "Existing roles, groups, labels, and descriptions will be preserved. "
+                "Only settings required by the new mode will be requested.",
+            ),
+            view=PanelModeChangeView(self),
+            ephemeral=True,
         )
 
     @ui.button(label="➕ Add Group", style=discord.ButtonStyle.secondary, row=3)
@@ -414,44 +460,16 @@ class PanelEditorView(ui.View):
     async def custom_role(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(CustomRoleModal(self))
 
-    @ui.button(label="🖌️ Rebrand Selected", style=discord.ButtonStyle.secondary, row=3)
-    async def rebrand_selected(self, interaction: discord.Interaction, button: ui.Button):
-        if not self.selected_option_id:
-            await interaction.response.send_message(
-                embed=EmbedBuilder.warning(
-                    "Select an Option First",
-                    "Choose a role option in the selector, then rebrand it.",
-                ),
-                ephemeral=True,
-            )
-            return
-        option = next(
-            (item for item in self.options if item.id == self.selected_option_id),
-            None,
+    @ui.button(label="📍 Edit Channel", style=discord.ButtonStyle.secondary, row=4)
+    async def edit_channel(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_message(
+            embed=EmbedBuilder.info(
+                "Choose Panel Channel",
+                "Select the text channel where this panel should be published.",
+            ),
+            view=PanelChannelEditView(self),
+            ephemeral=True,
         )
-        if not option or option.role_source.value != "bot_created":
-            await interaction.response.send_message(
-                embed=EmbedBuilder.error(
-                    "Existing Role Protected",
-                    "Only bot-owned custom roles can be renamed or recolored here.",
-                ),
-                ephemeral=True,
-            )
-            return
-        await interaction.response.send_modal(CustomRoleBrandModal(self))
-
-    @ui.button(label="😀 Set Emoji", style=discord.ButtonStyle.secondary, row=3)
-    async def set_emoji(self, interaction: discord.Interaction, button: ui.Button):
-        if not self.selected_option_id:
-            await interaction.response.send_message(
-                embed=EmbedBuilder.warning(
-                    "Select an Option First",
-                    "Choose a role option in the selector, then set its emoji.",
-                ),
-                ephemeral=True,
-            )
-            return
-        await interaction.response.send_modal(OptionEmojiModal(self))
 
     @ui.button(label="✅ Publish", style=discord.ButtonStyle.primary, row=4)
     async def publish(self, interaction: discord.Interaction, button: ui.Button):
@@ -479,26 +497,6 @@ class PanelEditorView(ui.View):
             view=self,
         )
 
-    @ui.button(label="➖ Remove Selected Option", style=discord.ButtonStyle.danger, row=4)
-    async def remove_option(self, interaction: discord.Interaction, button: ui.Button):
-        if not self.selected_option_id:
-            await interaction.response.send_message(
-                embed=EmbedBuilder.warning(
-                    "Select an Option First",
-                    "Choose a role option in the selector, then choose how to remove it.",
-                ),
-                ephemeral=True,
-            )
-            return
-        await interaction.response.send_message(
-            embed=EmbedBuilder.warning(
-                "Remove Role Option?",
-                "The panel option will be removed. The Discord role and existing member assignments will be preserved.",
-            ),
-            view=OptionDeleteConfirmView(self),
-            ephemeral=True,
-        )
-
     @ui.button(label="🗑 Delete Panel", style=discord.ButtonStyle.danger, row=4)
     async def delete(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(
@@ -516,6 +514,202 @@ class PanelEditorView(ui.View):
         await interaction.response.edit_message(
             embed=await ReactionRoleAdminView.status_embed(self.guild),
             view=view,
+        )
+
+
+class PanelDetailsModal(ui.Modal, title="Edit Reaction-Role Panel"):
+    def __init__(self, parent: PanelEditorView):
+        super().__init__()
+        self.controller = parent
+        self.name_input = ui.TextInput(
+            label="Panel name",
+            default=parent.panel.name,
+            required=True,
+            max_length=100,
+        )
+        self.title_input = ui.TextInput(
+            label="Panel title",
+            default=parent.panel.title,
+            required=True,
+            max_length=256,
+        )
+        self.description_input = ui.TextInput(
+            label="Panel description",
+            default=parent.panel.description,
+            required=True,
+            max_length=4000,
+            style=discord.TextStyle.paragraph,
+        )
+        for item in (self.name_input, self.title_input, self.description_input):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        appearance = self.controller.panel.appearance or {}
+        ok, message = await self.controller.service.update_panel(
+            self.controller.guild,
+            self.controller.executor,
+            self.controller.panel.id,
+            name=self.name_input.value,
+            title=self.title_input.value,
+            description=self.description_input.value,
+            mode=self.controller.panel.presentation_mode.value,
+            select_placeholder=appearance.get("select_placeholder", ""),
+        )
+        ok, message = await _republish_after_save(self.controller, ok, message)
+        updated = await PanelEditorView.create(
+            self.controller.bot,
+            self.controller.guild,
+            self.controller.executor,
+            self.controller.panel.id,
+        )
+        await interaction.response.send_message(
+            embed=updated.embed if ok else EmbedBuilder.error("Panel Not Updated", message),
+            view=updated if ok else None,
+            ephemeral=True,
+        )
+
+
+class PanelChannelEditView(ui.View):
+    def __init__(self, editor: PanelEditorView):
+        super().__init__(timeout=180)
+        self.editor = editor
+        self.add_item(PanelChannelSelect(self))
+
+
+class PanelChannelSelect(ui.ChannelSelect):
+    def __init__(self, parent: PanelChannelEditView):
+        self.controller = parent
+        super().__init__(
+            placeholder="Choose a destination channel",
+            channel_types=[discord.ChannelType.text, discord.ChannelType.news],
+            min_values=1,
+            max_values=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        editor = self.controller.editor
+        channel = self.values[0]
+        appearance = editor.panel.appearance or {}
+        ok, message = await editor.service.update_panel(
+            editor.guild,
+            editor.executor,
+            editor.panel.id,
+            name=editor.panel.name,
+            title=editor.panel.title,
+            description=editor.panel.description,
+            mode=editor.panel.presentation_mode.value,
+            select_placeholder=appearance.get("select_placeholder", ""),
+            channel_id=channel.id,
+        )
+        ok, message = await _republish_after_save(self.controller, ok, message)
+        updated = await PanelEditorView.create(
+            editor.bot, editor.guild, editor.executor, editor.panel.id
+        )
+        await interaction.response.edit_message(
+            embed=updated.embed if ok else EmbedBuilder.error("Channel Not Updated", message),
+            view=updated if ok else self.controller,
+        )
+
+
+class PanelModeChangeView(ui.View):
+    def __init__(self, editor: PanelEditorView):
+        super().__init__(timeout=180)
+        self.editor = editor
+        self.add_item(PanelModeSelect(self))
+
+
+class PanelModeSelect(ui.Select):
+    def __init__(self, parent: PanelModeChangeView):
+        self.controller = parent
+        current = parent.editor.panel.presentation_mode.value
+        super().__init__(
+            placeholder=f"Current mode: {current} · choose a new mode",
+            options=[
+                discord.SelectOption(
+                    label="Buttons",
+                    value="buttons",
+                    description="Reuse existing roles as clickable buttons.",
+                    default=current == "buttons",
+                ),
+                discord.SelectOption(
+                    label="Select menu",
+                    value="select",
+                    description="Reuse existing roles in menus.",
+                    default=current == "select",
+                ),
+                discord.SelectOption(
+                    label="Emoji reactions",
+                    value="reactions",
+                    description="Reuse existing roles as reactions.",
+                    default=current == "reactions",
+                ),
+            ],
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        mode = self.values[0]
+        if mode == "select":
+            await interaction.response.send_modal(SelectModeSettingsModal(self.controller.editor))
+            return
+        await self._save_mode(interaction, mode)
+
+    async def _save_mode(self, interaction: discord.Interaction, mode: str):
+        editor = self.controller.editor
+        appearance = editor.panel.appearance or {}
+        ok, message = await editor.service.update_panel(
+            editor.guild,
+            editor.executor,
+            editor.panel.id,
+            name=editor.panel.name,
+            title=editor.panel.title,
+            description=editor.panel.description,
+            mode=mode,
+            select_placeholder=appearance.get("select_placeholder", ""),
+        )
+        ok, message = await _republish_after_save(editor, ok, message)
+        updated = await PanelEditorView.create(
+            editor.bot, editor.guild, editor.executor, editor.panel.id
+        )
+        await interaction.response.edit_message(
+            embed=updated.embed if ok else EmbedBuilder.error("Mode Not Changed", message),
+            view=updated if ok else self.controller,
+        )
+
+
+class SelectModeSettingsModal(ui.Modal, title="Select Menu Settings"):
+    def __init__(self, editor: PanelEditorView):
+        super().__init__()
+        self.editor = editor
+        current = (editor.panel.appearance or {}).get("select_placeholder", "")
+        self.placeholder_input = ui.TextInput(
+            label="Menu placeholder",
+            default=current,
+            placeholder="Example: Choose your roles...",
+            required=False,
+            max_length=150,
+        )
+        self.add_item(self.placeholder_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        editor = self.editor
+        ok, message = await editor.service.update_panel(
+            editor.guild,
+            editor.executor,
+            editor.panel.id,
+            name=editor.panel.name,
+            title=editor.panel.title,
+            description=editor.panel.description,
+            mode="select",
+            select_placeholder=self.placeholder_input.value,
+        )
+        ok, message = await _republish_after_save(editor, ok, message)
+        updated = await PanelEditorView.create(
+            editor.bot, editor.guild, editor.executor, editor.panel.id
+        )
+        await interaction.response.send_message(
+            embed=updated.embed if ok else EmbedBuilder.error("Mode Not Changed", message),
+            view=updated if ok else None,
+            ephemeral=True,
         )
 
 
@@ -541,7 +735,143 @@ class EditorGroupSelect(ui.Select):
     async def callback(self, interaction: discord.Interaction):
         self.controller.selected_group_id = None if self.values[0] == "none" else int(self.values[0])
         await interaction.response.send_message(
-            embed=EmbedBuilder.success("Group Selected", self.values[0]),
+            embed=EmbedBuilder.success(
+                "Group Selected",
+                f"{self.values[0]}\nChoose an action below to edit this group.",
+            ),
+            view=GroupActionView(self.controller),
+            ephemeral=True,
+        )
+
+
+class GroupActionView(ui.View):
+    def __init__(self, editor: PanelEditorView):
+        super().__init__(timeout=180)
+        self.editor = editor
+
+    @ui.button(label="✏️ Edit Group", style=discord.ButtonStyle.primary)
+    async def edit(self, interaction: discord.Interaction, button: ui.Button):
+        group = self.editor.groups.get(self.editor.selected_group_id)
+        if not group:
+            await interaction.response.edit_message(
+                embed=EmbedBuilder.error("Group Not Found", "Refresh the panel editor and try again."),
+                view=None,
+            )
+            return
+        await interaction.response.send_modal(GroupEditModal(self.editor, group))
+
+    @ui.button(label="🗑 Delete Group", style=discord.ButtonStyle.danger)
+    async def delete(self, interaction: discord.Interaction, button: ui.Button):
+        group = self.editor.groups.get(self.editor.selected_group_id)
+        if not group:
+            await interaction.response.edit_message(
+                embed=EmbedBuilder.error("Group Not Found", "Refresh the panel editor and try again."),
+                view=None,
+            )
+            return
+        await interaction.response.edit_message(
+            embed=EmbedBuilder.warning(
+                "Delete Role Group?",
+                "The group will be removed, but its role options, Discord roles, and member assignments "
+                "will be preserved as independent options.",
+            ),
+            view=GroupDeleteConfirmView(self.editor, group.id),
+        )
+
+
+class GroupEditModal(ui.Modal, title="Edit Role Group"):
+    def __init__(self, parent: PanelEditorView, group: ReactionRoleGroup):
+        super().__init__()
+        self.controller = parent
+        self.group = group
+        self.name_input = ui.TextInput(
+            label="Group name",
+            default=group.name,
+            required=True,
+            max_length=100,
+        )
+        self.description_input = ui.TextInput(
+            label="Group description",
+            default=group.description or "",
+            required=False,
+            max_length=1000,
+            style=discord.TextStyle.paragraph,
+        )
+        self.mode_input = ui.TextInput(
+            label="Selection: single or multiple",
+            default=group.selection_mode.value,
+            required=True,
+            max_length=10,
+        )
+        self.toggle_input = ui.TextInput(
+            label="Toggle: remove or strict",
+            default=group.toggle_policy.value,
+            required=True,
+            max_length=10,
+        )
+        self.rules_input = ui.TextInput(
+            label="Required / max selections",
+            default=f"{'yes' if group.required else 'no'}, {group.max_selections or 'unlimited'}",
+            placeholder="Example: yes, 1 or no, unlimited",
+            required=True,
+            max_length=30,
+        )
+        for item in (
+            self.name_input,
+            self.description_input,
+            self.mode_input,
+            self.toggle_input,
+            self.rules_input,
+        ):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        mode = self.mode_input.value.strip().lower()
+        toggle = self.toggle_input.value.strip().lower()
+        parts = [part.strip().lower() for part in self.rules_input.value.split(",", 1)]
+        if len(parts) != 2 or parts[0] not in {"yes", "no"}:
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error(
+                    "Invalid Group Rules",
+                    "Use `yes, 1` or `no, unlimited` for required and maximum selections.",
+                ),
+                ephemeral=True,
+            )
+            return
+        if parts[1] in {"unlimited", "none", "0"}:
+            max_selections = None
+        elif parts[1].isdigit():
+            max_selections = int(parts[1])
+        else:
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error(
+                    "Invalid Group Rules",
+                    "Maximum selections must be a number or `unlimited`.",
+                ),
+                ephemeral=True,
+            )
+            return
+        ok, message = await self.controller.service.update_group(
+            self.controller.guild,
+            self.controller.executor,
+            self.group.id,
+            name=self.name_input.value,
+            description=self.description_input.value,
+            selection_mode=mode,
+            toggle_policy=toggle,
+            required=parts[0] == "yes",
+            max_selections=max_selections,
+        )
+        ok, message = await _republish_after_save(self.controller, ok, message)
+        updated = await PanelEditorView.create(
+            self.controller.bot,
+            self.controller.guild,
+            self.controller.executor,
+            self.controller.panel.id,
+        )
+        await interaction.response.send_message(
+            embed=updated.embed if ok else EmbedBuilder.error("Group Not Updated", message),
+            view=updated if ok else None,
             ephemeral=True,
         )
 
@@ -597,9 +927,72 @@ class EditorOptionSelect(ui.Select):
         await interaction.response.send_message(
             embed=EmbedBuilder.success(
                 "Option Selected",
-                "Use **Set Emoji**, **Rebrand Selected**, or **Remove Selected Option**.",
+                "Choose an action below to edit this role option.",
             ),
+            view=OptionActionView(self.controller),
             ephemeral=True,
+        )
+
+
+class OptionActionView(ui.View):
+    def __init__(self, editor: PanelEditorView):
+        super().__init__(timeout=180)
+        self.editor = editor
+
+    def _option(self):
+        return next(
+            (item for item in self.editor.options if item.id == self.editor.selected_option_id),
+            None,
+        )
+
+    @ui.button(label="✏️ Edit Name / Description", style=discord.ButtonStyle.primary)
+    async def edit(self, interaction: discord.Interaction, button: ui.Button):
+        if not self._option():
+            await interaction.response.edit_message(
+                embed=EmbedBuilder.error("Option Not Found", "Refresh the panel editor and try again."),
+                view=None,
+            )
+            return
+        await interaction.response.send_modal(OptionEditModal(self.editor))
+
+    @ui.button(label="😀 Set Emoji", style=discord.ButtonStyle.secondary)
+    async def emoji(self, interaction: discord.Interaction, button: ui.Button):
+        if not self._option():
+            await interaction.response.edit_message(
+                embed=EmbedBuilder.error("Option Not Found", "Refresh the panel editor and try again."),
+                view=None,
+            )
+            return
+        await interaction.response.send_modal(OptionEmojiModal(self.editor))
+
+    @ui.button(label="🖌️ Rebrand Custom Role", style=discord.ButtonStyle.secondary)
+    async def rebrand(self, interaction: discord.Interaction, button: ui.Button):
+        option = self._option()
+        if not option or option.role_source.value != "bot_created":
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error(
+                    "Existing Role Protected",
+                    "Only bot-owned custom roles can be renamed or recolored here.",
+                ),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(CustomRoleBrandModal(self.editor))
+
+    @ui.button(label="🗑 Remove Option", style=discord.ButtonStyle.danger)
+    async def remove(self, interaction: discord.Interaction, button: ui.Button):
+        if not self._option():
+            await interaction.response.edit_message(
+                embed=EmbedBuilder.error("Option Not Found", "Refresh the panel editor and try again."),
+                view=None,
+            )
+            return
+        await interaction.response.edit_message(
+            embed=EmbedBuilder.warning(
+                "Remove Role Option?",
+                "The panel option will be removed. The Discord role and existing member assignments will be preserved.",
+            ),
+            view=OptionDeleteConfirmView(self.editor),
         )
 
 
@@ -627,6 +1020,7 @@ class OptionEmojiModal(ui.Modal, title="Set Reaction-Role Emoji"):
             self.controller.selected_option_id,
             self.emoji_input.value,
         )
+        ok, message = await _republish_after_save(self.controller, ok, message)
         updated = await PanelEditorView.create(
             self.controller.bot,
             self.controller.guild,
@@ -635,6 +1029,51 @@ class OptionEmojiModal(ui.Modal, title="Set Reaction-Role Emoji"):
         )
         await interaction.response.send_message(
             embed=updated.embed if ok else EmbedBuilder.error("Emoji Not Saved", message),
+            view=updated if ok else None,
+            ephemeral=True,
+        )
+
+
+class OptionEditModal(ui.Modal, title="Edit Role Option"):
+    def __init__(self, parent: PanelEditorView):
+        super().__init__()
+        self.controller = parent
+        option = next(
+            (item for item in parent.options if item.id == parent.selected_option_id),
+            None,
+        )
+        self.label_input = ui.TextInput(
+            label="Member-facing name",
+            default=option.label if option else "",
+            required=True,
+            max_length=100,
+        )
+        self.description_input = ui.TextInput(
+            label="Role description",
+            default=option.description if option and option.description else "",
+            required=False,
+            max_length=100,
+        )
+        self.add_item(self.label_input)
+        self.add_item(self.description_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        ok, message = await self.controller.service.update_option(
+            self.controller.guild,
+            self.controller.executor,
+            self.controller.selected_option_id,
+            label=self.label_input.value,
+            description=self.description_input.value,
+        )
+        ok, message = await _republish_after_save(self.controller, ok, message)
+        updated = await PanelEditorView.create(
+            self.controller.bot,
+            self.controller.guild,
+            self.controller.executor,
+            self.controller.panel.id,
+        )
+        await interaction.response.send_message(
+            embed=updated.embed if ok else EmbedBuilder.error("Option Not Updated", message),
             view=updated if ok else None,
             ephemeral=True,
         )
@@ -669,6 +1108,39 @@ class OptionDeleteConfirmView(ui.View):
         await interaction.response.edit_message(
             embed=(updated.embed if ok else EmbedBuilder.error("Option Not Removed", message)),
             view=updated if ok else None,
+        )
+
+
+class GroupDeleteConfirmView(ui.View):
+    def __init__(self, editor: PanelEditorView, group_id: int):
+        super().__init__(timeout=120)
+        self.editor = editor
+        self.group_id = group_id
+
+    @ui.button(label="Delete Group, Preserve Options", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: ui.Button):
+        ok, message = await self.editor.service.delete_group(
+            self.editor.guild,
+            self.editor.executor,
+            self.group_id,
+        )
+        ok, message = await _republish_after_save(self.editor, ok, message)
+        updated = await PanelEditorView.create(
+            self.editor.bot,
+            self.editor.guild,
+            self.editor.executor,
+            self.editor.panel.id,
+        )
+        await interaction.response.edit_message(
+            embed=updated.embed if ok else EmbedBuilder.error("Group Not Deleted", message),
+            view=updated if ok else self,
+        )
+
+    @ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.edit_message(
+            embed=self.editor.embed,
+            view=self.editor,
         )
 
 
