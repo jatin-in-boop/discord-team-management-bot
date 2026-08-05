@@ -18,3 +18,6 @@ attachment helper.
 The minimal embed contract is title, user-authored message, and banner only;
 automatic identity, status, timestamps, footers, and boilerplate copy are not
 part of the rendered community message.
+
+The member mention is intentionally sent outside the embed as the only message
+content, so Discord can notify the user without adding words to the card.

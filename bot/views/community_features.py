@@ -139,7 +139,9 @@ class MessageSettingsView(ui.View):
         from bot.services.community_service import build_config_embed
         from bot.services.community_service import _banner_file
 
+        mention = getattr(member, "mention", "") or f"<@{member.id}>"
         await interaction.response.send_message(
+            content=mention,
             embed=build_config_embed(config, self.guild, member, self.kind, test=True),
             file=_banner_file(config, self.kind),
             allowed_mentions=discord.AllowedMentions(

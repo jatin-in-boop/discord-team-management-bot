@@ -159,7 +159,7 @@ def departure_snapshot(member: discord.Member) -> Any:
         id=member.id,
         name=member.name,
         display_name=member.display_name,
-        mention="",
+        mention=f"<@{member.id}>",
         joined_at=member.joined_at,
         created_at=member.created_at,
         left_at=datetime.utcnow(),
@@ -501,8 +501,12 @@ class CommunityService:
             await CommunityService.mark_status(guild.id, kind, "Destination channel is missing.")
             return False, "The configured destination channel is missing or unavailable."
         try:
+            mention = getattr(member, "mention", "") or (
+                f"<@{getattr(member, 'id')}>" if getattr(member, "id", None) else ""
+            )
             banner_file = _banner_file(config, kind)
             await channel.send(
+                content=mention or None,
                 embed=build_config_embed(config, guild, member, kind, test=test),
                 file=banner_file,
                 allowed_mentions=discord.AllowedMentions(
