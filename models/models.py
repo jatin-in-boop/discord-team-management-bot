@@ -287,6 +287,7 @@ class CommunitySettings(Base):
     goodbye_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     goodbye_message_config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     banner_defaults_reset_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    banner_layout_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     invite_tracker_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     invite_tracker_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     audit_logging_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

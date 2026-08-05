@@ -32,6 +32,7 @@ DEFAULT_BANNER_FILES = {
     "goodbye": "goodbye_banner.jpeg",
 }
 DEFAULT_BANNER_RESET_VERSION = "uploaded-community-banners-v1"
+DEFAULT_BANNER_LAYOUT_VERSION = "integrated-embed-banners-v1"
 
 WELCOME_DEFAULT = {
     "style": "embed",
@@ -308,11 +309,18 @@ class CommunityService:
                     settings.banner_defaults_reset_version = DEFAULT_BANNER_RESET_VERSION
                     welcome_changed = True
                     goodbye_changed = True
+                layout_upgrade = settings.banner_layout_version != DEFAULT_BANNER_LAYOUT_VERSION
+                if layout_upgrade:
+                    welcome_config["style"] = "embed"
+                    goodbye_config["style"] = "embed"
+                    settings.banner_layout_version = DEFAULT_BANNER_LAYOUT_VERSION
+                    welcome_changed = True
+                    goodbye_changed = True
                 if welcome_changed:
                     settings.welcome_message_config = welcome_config
                 if goodbye_changed:
                     settings.goodbye_message_config = goodbye_config
-                if welcome_changed or goodbye_changed or banner_reset:
+                if welcome_changed or goodbye_changed or banner_reset or layout_upgrade:
                     await session.commit()
                 return settings
             settings = CommunitySettings(
@@ -320,6 +328,7 @@ class CommunityService:
                 welcome_message_config=dict(WELCOME_DEFAULT),
                 goodbye_message_config=dict(GOODBYE_DEFAULT),
                 banner_defaults_reset_version=DEFAULT_BANNER_RESET_VERSION,
+                banner_layout_version=DEFAULT_BANNER_LAYOUT_VERSION,
             )
             session.add(settings)
             await session.commit()
