@@ -4,6 +4,7 @@ from app_logging.logger import get_logger
 from database.session import get_db_session
 from models.models import AuditLog
 from sqlalchemy import select
+from bot.services.server_log_service import ServerLogService
 
 logger = get_logger(__name__)
 
@@ -29,3 +30,4 @@ class AuditService:
             session.add(audit)
             await session.commit()
             logger.info("audit.logged", guild_id=guild_id, action=action)
+        await ServerLogService.queue_audit(guild_id, action, executor_id, metadata)

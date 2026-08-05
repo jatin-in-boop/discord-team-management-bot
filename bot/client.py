@@ -12,6 +12,8 @@ from bot.services.audit_service import AuditService
 from bot.services.pulse_service import PulseService
 from bot.services.giveaway_service import GiveawayService
 from bot.services.scheduler_service import CommunityScheduler
+from bot.services.invite_tracker_service import InviteTrackerService
+from bot.services.server_log_service import ServerLogService
 from bot.views.management_panel import ManagementPanelView
 
 logger = get_logger(__name__)
@@ -24,6 +26,8 @@ class TeamManagementBot(commands.Bot):
         intents.guilds = True
         intents.members = True
         intents.message_content = True
+        intents.invites = True
+        intents.voice_states = True
 
         super().__init__(
             command_prefix=commands.when_mentioned,
@@ -37,6 +41,7 @@ class TeamManagementBot(commands.Bot):
         self.reaction_role_service = ReactionRoleService(self)
         self.pulse_service = PulseService(self)
         self.giveaway_service = GiveawayService(self)
+        self.invite_tracker_service = InviteTrackerService(self)
         self.community_scheduler = CommunityScheduler(
             self, self.pulse_service, self.giveaway_service
         )
@@ -46,6 +51,7 @@ class TeamManagementBot(commands.Bot):
         self.pulse_presentation_guild_ids: set[int] = set()
         self.community_views_restored = False
         self.giveaway_views_restored = False
+        ServerLogService.bind_bot(self)
 
     async def setup_hook(self):
         logger.info("bot.startup.begin")
@@ -78,6 +84,7 @@ class TeamManagementBot(commands.Bot):
 
         # 8-12. Load guild configurations, restore panels, validate resources
         for guild in self.guilds:
+            await self.invite_tracker_service.sync_guild(guild)
             await self.restoration_service.restore_guild_panel(guild)
             repaired = await self.team_creation_service.repair_guild_permissions(guild)
             logger.info("team.permissions_repaired", guild_id=guild.id, resources=repaired)
@@ -136,6 +143,7 @@ class TeamManagementBot(commands.Bot):
     async def on_guild_join(self, guild: discord.Guild):
         logger.info("guild.joined", guild_id=guild.id, name=guild.name)
         await self.setup_service.setup_guild(guild)
+        await self.invite_tracker_service.sync_guild(guild)
         try:
             created, failed = await self.pulse_service.apply_default_presentation(
                 guild, self.user.id if self.user else 0
@@ -161,6 +169,13 @@ class TeamManagementBot(commands.Bot):
         from bot.services.community_service import CommunityService
 
         event_key = f"join:{member.guild.id}:{member.id}:{member.joined_at.isoformat() if member.joined_at else 'unknown'}"
+        await self.invite_tracker_service.attribute_join(member)
+        await AuditService.log_action(
+            member.guild.id,
+            self.user.id if self.user else 0,
+            "MEMBER_JOINED",
+            {"member_id": member.id, "member_name": member.display_name},
+        )
         if await CommunityService.event_already_logged(member.guild.id, "WELCOME_SENT", event_key):
             return
         ok, message = await CommunityService.send_configured_message(
@@ -183,6 +198,12 @@ class TeamManagementBot(commands.Bot):
         if await CommunityService.event_already_logged(member.guild.id, "GOODBYE_SENT", event_key):
             return
         snapshot = departure_snapshot(member)
+        await AuditService.log_action(
+            member.guild.id,
+            self.user.id if self.user else 0,
+            "MEMBER_LEFT",
+            {"member_id": member.id, "member_name": member.display_name},
+        )
         ok, message = await CommunityService.send_configured_message(
             member.guild, snapshot, "goodbye"
         )
@@ -195,6 +216,211 @@ class TeamManagementBot(commands.Bot):
             )
         else:
             logger.info("community.goodbye_skipped", guild_id=member.guild.id, reason=message)
+
+    async def _resolve_audit_actor(
+        self,
+        guild: discord.Guild,
+        action: discord.AuditLogAction,
+        target_id: int | None = None,
+    ) -> int:
+        """Resolve the human actor from Discord's audit log when available."""
+        fallback = self.user.id if self.user else 0
+        try:
+            if guild.me and not guild.me.guild_permissions.view_audit_log:
+                return fallback
+            now = discord.utils.utcnow()
+            async for entry in guild.audit_logs(limit=8, action=action):
+                if target_id and getattr(entry.target, "id", None) != target_id:
+                    continue
+                if entry.created_at and (now - entry.created_at).total_seconds() > 20:
+                    continue
+                return entry.user.id if entry.user else fallback
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        return fallback
+
+    async def on_invite_create(self, invite: discord.Invite):
+        await self.invite_tracker_service.on_invite_create(invite)
+
+    async def on_invite_delete(self, invite: discord.Invite):
+        await self.invite_tracker_service.on_invite_delete(invite)
+
+    async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
+        actor_id = await self._resolve_audit_actor(
+            channel.guild, discord.AuditLogAction.channel_create, channel.id
+        )
+        await AuditService.log_action(
+            channel.guild.id,
+            actor_id,
+            "CHANNEL_CREATED",
+            {"channel_id": channel.id, "channel_name": channel.name},
+        )
+
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+        actor_id = await self._resolve_audit_actor(
+            channel.guild, discord.AuditLogAction.channel_delete, channel.id
+        )
+        await AuditService.log_action(
+            channel.guild.id,
+            actor_id,
+            "CHANNEL_DELETED",
+            {"channel_id": channel.id, "channel_name": channel.name},
+        )
+
+    async def on_guild_channel_update(
+        self,
+        before: discord.abc.GuildChannel,
+        after: discord.abc.GuildChannel,
+    ):
+        changes = []
+        if before.name != after.name:
+            changes.append(f"name: {before.name} → {after.name}")
+        if before.category_id != after.category_id:
+            changes.append("category changed")
+        if changes:
+            actor_id = await self._resolve_audit_actor(
+                after.guild, discord.AuditLogAction.channel_update, after.id
+            )
+            await AuditService.log_action(
+                after.guild.id,
+                actor_id,
+                "CHANNEL_UPDATED",
+                {"channel_id": after.id, "channel_name": after.name, "changes": ", ".join(changes)},
+            )
+
+    async def on_guild_role_create(self, role: discord.Role):
+        actor_id = await self._resolve_audit_actor(
+            role.guild, discord.AuditLogAction.role_create, role.id
+        )
+        await AuditService.log_action(
+            role.guild.id,
+            actor_id,
+            "ROLE_CREATED",
+            {"role_id": role.id, "role_name": role.name},
+        )
+
+    async def on_guild_role_delete(self, role: discord.Role):
+        actor_id = await self._resolve_audit_actor(
+            role.guild, discord.AuditLogAction.role_delete, role.id
+        )
+        await AuditService.log_action(
+            role.guild.id,
+            actor_id,
+            "ROLE_DELETED",
+            {"role_id": role.id, "role_name": role.name},
+        )
+
+    async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
+        changes = []
+        if before.name != after.name:
+            changes.append(f"name: {before.name} → {after.name}")
+        if before.color != after.color:
+            changes.append("color changed")
+        if before.hoist != after.hoist:
+            changes.append("display position changed")
+        if before.mentionable != after.mentionable:
+            changes.append("mentionability changed")
+        if changes:
+            actor_id = await self._resolve_audit_actor(
+                after.guild, discord.AuditLogAction.role_update, after.id
+            )
+            await AuditService.log_action(
+                after.guild.id,
+                actor_id,
+                "ROLE_UPDATED",
+                {"role_id": after.id, "role_name": after.name, "changes": ", ".join(changes)},
+            )
+
+    async def on_member_ban(self, guild: discord.Guild, user: discord.User):
+        actor_id = await self._resolve_audit_actor(
+            guild, discord.AuditLogAction.ban, user.id
+        )
+        await AuditService.log_action(
+            guild.id,
+            actor_id,
+            "MEMBER_BANNED",
+            {"member_id": user.id, "member_name": user.name},
+        )
+
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        changes = []
+        if before.nick != after.nick:
+            changes.append("nickname changed")
+        if before.communication_disabled_until != after.communication_disabled_until:
+            changes.append("timeout changed")
+        if changes:
+            await AuditService.log_action(
+                after.guild.id,
+                self.user.id if self.user else 0,
+                "MEMBER_UPDATED",
+                {"member_id": after.id, "member_name": after.display_name, "changes": ", ".join(changes)},
+            )
+        if before.roles != after.roles:
+            actor_id = await self._resolve_audit_actor(
+                after.guild, discord.AuditLogAction.member_role_update, after.id
+            )
+            action = (
+                "MEMBER_ROLES_UPDATED"
+                if actor_id == (self.user.id if self.user else 0)
+                else "MEMBER_ROLE_CHANGED"
+            )
+            await AuditService.log_action(
+                after.guild.id,
+                actor_id,
+                action,
+                {"member_id": after.id, "member_name": after.display_name},
+            )
+
+    async def on_message_delete(self, message: discord.Message):
+        if message.guild and getattr(message.author, "bot", False) is False:
+            await AuditService.log_action(
+                message.guild.id,
+                self.user.id if self.user else 0,
+                "MESSAGE_DELETED",
+                {"member_id": message.author.id, "channel_id": message.channel.id},
+            )
+
+    async def on_message_edit(self, before: discord.Message, after: discord.Message):
+        if (
+            before.guild
+            and getattr(before.author, "bot", False) is False
+            and before.content != after.content
+        ):
+            await AuditService.log_action(
+                before.guild.id,
+                self.user.id if self.user else 0,
+                "MESSAGE_EDITED",
+                {"member_id": before.author.id, "channel_id": before.channel.id},
+            )
+
+    async def on_voice_state_update(
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ):
+        if before.channel == after.channel:
+            return
+        await AuditService.log_action(
+            member.guild.id,
+            self.user.id if self.user else 0,
+            "VOICE_STATE_UPDATED",
+            {
+                "member_id": member.id,
+                "channel_name": after.channel.name if after.channel else "left voice",
+            },
+        )
+
+    async def on_member_unban(self, guild: discord.Guild, user: discord.User):
+        actor_id = await self._resolve_audit_actor(
+            guild, discord.AuditLogAction.unban, user.id
+        )
+        await AuditService.log_action(
+            guild.id,
+            actor_id,
+            "MEMBER_UNBANNED",
+            {"member_id": user.id, "member_name": user.name},
+        )
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         await self.reaction_role_service.handle_reaction(payload, adding=True)

@@ -27,6 +27,12 @@ from models.models import (
 logger = get_logger(__name__)
 
 _member_locks: dict[tuple[int, int, Optional[int]], asyncio.Lock] = defaultdict(asyncio.Lock)
+DEFAULT_REACTION_EMOJIS = (
+    "🎮", "🎯", "🎨", "🎵", "📣", "🎉", "🏆", "🌟", "🔥", "💎",
+    "🛡️", "⚔️", "🚀", "🌙", "☀️", "🍀", "🦊", "🐺", "🧭", "📚",
+    "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟",
+    "✅", "❌", "⭐", "💬", "🎲", "🎁", "🎤", "🎧", "🌈", "🍕",
+)
 
 
 def _role_name(label: str, brand_tag: str = "", symbol: str = "") -> str:
@@ -267,6 +273,100 @@ class ReactionRoleService:
                 ).scalars().all()
             )
 
+    async def ensure_reaction_emojis(
+        self,
+        panel_id: int,
+        *,
+        executor_id: int | None = None,
+    ) -> int:
+        """Give blank reaction options stable, unique defaults before publishing."""
+        async with get_db_session() as session:
+            options = list(
+                (
+                    await session.execute(
+                        select(ReactionRoleOption)
+                        .where(ReactionRoleOption.panel_id == panel_id)
+                        .order_by(ReactionRoleOption.sort_order)
+                    )
+                ).scalars().all()
+            )
+            used = {option.emoji for option in options if option.emoji}
+            changed = 0
+            for index, option in enumerate(options):
+                if option.emoji:
+                    continue
+                candidate = next(
+                    (
+                        emoji for emoji in DEFAULT_REACTION_EMOJIS
+                        if emoji not in used
+                    ),
+                    None,
+                )
+                if not candidate:
+                    break
+                option.emoji = candidate
+                used.add(candidate)
+                changed += 1
+            if changed and executor_id:
+                panel = (
+                    await session.execute(
+                        select(ReactionRolePanel).where(ReactionRolePanel.id == panel_id)
+                    )
+                ).scalar_one_or_none()
+                if panel:
+                    panel.updated_by = executor_id
+            return changed
+
+    async def set_option_emoji(
+        self,
+        guild: discord.Guild,
+        executor: discord.Member,
+        option_id: int,
+        emoji: str,
+    ) -> tuple[bool, str]:
+        emoji = emoji.strip()
+        if not emoji or len(emoji) > 100:
+            return False, "Enter one Unicode emoji or a Discord custom emoji."
+        try:
+            discord.PartialEmoji.from_str(emoji)
+        except (TypeError, ValueError):
+            return False, "That emoji format is not valid."
+        async with get_db_session() as session:
+            option = (
+                await session.execute(
+                    select(ReactionRoleOption).where(ReactionRoleOption.id == option_id)
+                )
+            ).scalar_one_or_none()
+            if not option:
+                return False, "Role option not found."
+            panel = (
+                await session.execute(
+                    select(ReactionRolePanel).where(ReactionRolePanel.id == option.panel_id)
+                )
+            ).scalar_one_or_none()
+            if not panel or panel.guild_id != guild.id:
+                return False, "Panel not found."
+            duplicate = (
+                await session.execute(
+                    select(ReactionRoleOption).where(
+                        ReactionRoleOption.panel_id == option.panel_id,
+                        ReactionRoleOption.id != option.id,
+                        ReactionRoleOption.emoji == emoji,
+                    )
+                )
+            ).scalar_one_or_none()
+            if duplicate:
+                return False, "That emoji is already used by another option in this panel."
+            option.emoji = emoji
+            panel.updated_by = executor.id
+        await AuditService.log_action(
+            guild.id,
+            executor.id,
+            "REACTION_ROLE_EMOJI_UPDATED",
+            {"panel_id": panel.id, "option_id": option_id, "emoji": emoji},
+        )
+        return True, "Emoji saved. Publish the panel to apply it."
+
     async def panel_data(self, panel_id: int) -> tuple[Optional[ReactionRolePanel], list[ReactionRoleOption], dict[int, ReactionRoleGroup]]:
         async with get_db_session() as session:
             panel = (
@@ -307,6 +407,8 @@ class ReactionRoleService:
         if not isinstance(channel, discord.TextChannel):
             await self._mark_repair(panel_id, "Configured panel channel is missing or is not text.")
             return False, "The configured channel is missing or unavailable.", None
+        if panel.presentation_mode.value == "reactions":
+            await self.ensure_reaction_emojis(panel_id)
         await self.sync_managed_roles(guild, panel_id)
         panel, options, groups = await self.panel_data(panel_id)
         view = ReactionRolePanelView(

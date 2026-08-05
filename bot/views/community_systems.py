@@ -65,6 +65,8 @@ async def _pulse_modal_error(
 
 async def community_systems_embed(guild: discord.Guild, bot=None) -> discord.Embed:
     pulse = await PulseService(bot).get_or_create_settings(guild)
+    from bot.services.community_service import CommunityService
+    community = await CommunityService.get_or_create_settings(guild)
     async with get_db_session() as session:
         tracked = (
             await session.execute(
@@ -96,6 +98,10 @@ async def community_systems_embed(guild: discord.Guild, bot=None) -> discord.Emb
         f"**Pacing**            {pulse.pacing.value.title()}\n"
         f"**Leaderboard**       {leaderboard}\n"
         f"**Giveaways**         ✅ {live} live · {scheduled} scheduled\n\n"
+        f"**Invite Tracker**     {_state(community.invite_tracker_enabled)}"
+        f" · {f'<#{community.invite_tracker_channel_id}>' if community.invite_tracker_channel_id else 'Not configured'}\n"
+        f"**Server Logs**        {_state(community.audit_logging_enabled)}"
+        f" · {f'<#{community.audit_log_channel_id}>' if community.audit_log_channel_id else 'Not configured'}\n\n"
         "Choose a system below. Administrator controls are private."
     )
     return EmbedBuilder.info("✦ Community Systems", description)
@@ -124,7 +130,16 @@ class CommunitySystemsView(ui.View):
             view=GiveawayAdminView(self.bot, self.guild),
         )
 
-    @ui.button(label="📊 Activity & Health", style=discord.ButtonStyle.secondary, row=1)
+    @ui.button(label="🧭 Invite Tracker & Logs", style=discord.ButtonStyle.primary, row=1)
+    async def logging(self, interaction: discord.Interaction, button: ui.Button):
+        from bot.views.community_logging import CommunityLoggingView, logging_embed
+
+        await interaction.response.edit_message(
+            embed=await logging_embed(self.guild),
+            view=CommunityLoggingView(self.bot, self.guild),
+        )
+
+    @ui.button(label="📊 Activity & Health", style=discord.ButtonStyle.secondary, row=2)
     async def health(self, interaction: discord.Interaction, button: ui.Button):
         from bot.services.health_service import HealthService
 

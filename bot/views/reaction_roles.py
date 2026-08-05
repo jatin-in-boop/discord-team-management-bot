@@ -8,7 +8,10 @@ from sqlalchemy import select
 
 from app_logging.logger import get_logger
 from bot.embeds.base import EmbedBuilder
-from bot.services.reaction_role_service import ReactionRoleService
+from bot.services.reaction_role_service import (
+    DEFAULT_REACTION_EMOJIS,
+    ReactionRoleService,
+)
 from database.session import get_db_session
 from models.models import (
     ReactionRoleGroup,
@@ -41,8 +44,8 @@ def panel_embed(
         if group and group.selection_mode == SelectionMode.SINGLE:
             heading += " — choose one"
         lines = []
-        for option in group_options:
-            prefix = f"{option.emoji} " if option.emoji else ""
+        for index, option in enumerate(group_options):
+            prefix = f"{option.emoji or DEFAULT_REACTION_EMOJIS[index % len(DEFAULT_REACTION_EMOJIS)]} "
             detail = f" — {option.description}" if option.description else ""
             lines.append(f"{prefix}{option.label}{detail}")
         embed.add_field(name=heading, value="\n".join(lines)[:1024], inline=False)
@@ -86,13 +89,17 @@ class ReactionRolePanelView(ui.View):
             else:
                 button_options.extend(items)
 
-        for option in button_options[:20]:
+        for index, option in enumerate(button_options[:20]):
             button = ui.Button(
                 label=option.label[:80],
-                emoji=option.emoji or None,
-                style=discord.ButtonStyle.secondary,
+                emoji=option.emoji or DEFAULT_REACTION_EMOJIS[index % len(DEFAULT_REACTION_EMOJIS)],
+                style=(
+                    discord.ButtonStyle.primary
+                    if option.group_id
+                    else discord.ButtonStyle.secondary
+                ),
                 custom_id=f"rr:{self.panel_id}:{option.id}",
-                row=len(self.children) // 5,
+                row=index // 5,
             )
 
             async def callback(interaction: discord.Interaction, item=option):
@@ -433,6 +440,19 @@ class PanelEditorView(ui.View):
             return
         await interaction.response.send_modal(CustomRoleBrandModal(self))
 
+    @ui.button(label="😀 Set Emoji", style=discord.ButtonStyle.secondary, row=3)
+    async def set_emoji(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.selected_option_id:
+            await interaction.response.send_message(
+                embed=EmbedBuilder.warning(
+                    "Select an Option First",
+                    "Choose a role option in the selector, then set its emoji.",
+                ),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(OptionEmojiModal(self))
+
     @ui.button(label="✅ Publish", style=discord.ButtonStyle.primary, row=4)
     async def publish(self, interaction: discord.Interaction, button: ui.Button):
         ok, message, _ = await self.service.publish(self.guild, self.panel.id)
@@ -575,7 +595,47 @@ class EditorOptionSelect(ui.Select):
     async def callback(self, interaction: discord.Interaction):
         self.controller.selected_option_id = int(self.values[0])
         await interaction.response.send_message(
-            embed=EmbedBuilder.success("Option Selected", "Choose Remove Selected Option to continue."),
+            embed=EmbedBuilder.success(
+                "Option Selected",
+                "Use **Set Emoji**, **Rebrand Selected**, or **Remove Selected Option**.",
+            ),
+            ephemeral=True,
+        )
+
+
+class OptionEmojiModal(ui.Modal, title="Set Reaction-Role Emoji"):
+    def __init__(self, parent: PanelEditorView):
+        super().__init__()
+        self.controller = parent
+        option = next(
+            (item for item in parent.options if item.id == parent.selected_option_id),
+            None,
+        )
+        self.emoji_input = ui.TextInput(
+            label="Emoji",
+            default=option.emoji if option and option.emoji else "🎮",
+            placeholder="Example: 🎮 or <:name:123456789>",
+            required=True,
+            max_length=100,
+        )
+        self.add_item(self.emoji_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        ok, message = await self.controller.service.set_option_emoji(
+            self.controller.guild,
+            self.controller.executor,
+            self.controller.selected_option_id,
+            self.emoji_input.value,
+        )
+        updated = await PanelEditorView.create(
+            self.controller.bot,
+            self.controller.guild,
+            self.controller.executor,
+            self.controller.panel.id,
+        )
+        await interaction.response.send_message(
+            embed=updated.embed if ok else EmbedBuilder.error("Emoji Not Saved", message),
+            view=updated if ok else None,
             ephemeral=True,
         )
 

@@ -3,3 +3,4 @@
 - [Guild Pulse cap semantics](guild-pulse-cap-semantics.md) — source daily caps are hard per-member limits; a configured zero means unlimited.
 - [Persistent Pulse interactions](persistent-pulse-interactions.md) — live leaderboard buttons require stable guild-specific custom IDs and startup view registration.
 - [PLAYER LEGACY presentation](player-legacy-presentation.md) — preserve live milestone role state; manual display roles stay outside Pulse automation.
+- [Community event delivery](community-event-delivery.md) — invite notices use mapped channels; audit activity is batched and noisy categories are opt-in.

@@ -99,6 +99,9 @@ class Guild(Base):
     roles: Mapped[List["Role"]] = relationship(back_populates="guild", cascade="all, delete-orphan")
     channels: Mapped[List["Channel"]] = relationship(back_populates="guild", cascade="all, delete-orphan")
     audit_logs: Mapped[List["AuditLog"]] = relationship(back_populates="guild", cascade="all, delete-orphan")
+    invite_records: Mapped[List["InviteRecord"]] = relationship(
+        back_populates="guild", cascade="all, delete-orphan"
+    )
     community_settings: Mapped[Optional["CommunitySettings"]] = relationship(
         back_populates="guild", cascade="all, delete-orphan", uselist=False
     )
@@ -237,6 +240,30 @@ class AuditLog(Base):
     guild: Mapped["Guild"] = relationship(back_populates="audit_logs")
 
 
+class InviteRecord(Base):
+    __tablename__ = "invite_records"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("guilds.guild_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(100), nullable=False)
+    inviter_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, index=True)
+    channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    uses: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    max_uses: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    max_age: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    temporary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    guild: Mapped["Guild"] = relationship(back_populates="invite_records")
+
+    __table_args__ = (
+        UniqueConstraint("guild_id", "code", name="uq_invite_record_guild_code"),
+    )
+
+
 class BotMetadata(Base):
     __tablename__ = "bot_metadata"
 
@@ -259,6 +286,11 @@ class CommunitySettings(Base):
     goodbye_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     goodbye_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     goodbye_message_config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    invite_tracker_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    invite_tracker_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    audit_logging_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    audit_log_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    audit_log_config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     welcome_status: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     goodbye_status: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     updated_by: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)

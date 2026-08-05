@@ -292,6 +292,48 @@ class CommunityService:
             return settings
 
     @staticmethod
+    async def set_channel_feature(
+        guild: discord.Guild,
+        executor: discord.Member,
+        feature: str,
+        channel_id: int,
+        enabled: bool = True,
+    ) -> tuple[bool, str]:
+        fields = {
+            "invite_tracker": ("invite_tracker_enabled", "invite_tracker_channel_id"),
+            "audit_logging": ("audit_logging_enabled", "audit_log_channel_id"),
+        }
+        if feature not in fields:
+            return False, "Unknown community logging feature."
+        enabled_field, channel_field = fields[feature]
+        channel = guild.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            return False, "Choose a text or announcement channel."
+        async with get_db_session() as session:
+            settings = (
+                await session.execute(
+                    select(CommunitySettings).where(CommunitySettings.guild_id == guild.id)
+                )
+            ).scalar_one_or_none()
+            if not settings:
+                settings = CommunitySettings(
+                    guild_id=guild.id,
+                    welcome_message_config=dict(WELCOME_DEFAULT),
+                    goodbye_message_config=dict(GOODBYE_DEFAULT),
+                )
+                session.add(settings)
+            setattr(settings, channel_field, channel_id)
+            setattr(settings, enabled_field, enabled)
+            settings.updated_by = executor.id
+        await AuditService.log_action(
+            guild.id,
+            executor.id,
+            f"{feature.upper()}_CONFIG_UPDATED",
+            {"channel_id": channel_id, "enabled": enabled},
+        )
+        return True, f"{feature.replace('_', ' ').title()} is now mapped to {channel.mention}."
+
+    @staticmethod
     async def save_message_config(
         guild: discord.Guild,
         executor: discord.Member,
