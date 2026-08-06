@@ -139,6 +139,15 @@ class CommunitySystemsView(ui.View):
             view=CommunityLoggingView(self.bot, self.guild),
         )
 
+    @ui.button(label="🤖 Mech Arena AI", style=discord.ButtonStyle.primary, row=1)
+    async def mech_arena(self, interaction: discord.Interaction, button: ui.Button):
+        from bot.views.mech_arena import MechArenaAdminView, mech_arena_admin_embed
+
+        await interaction.response.edit_message(
+            embed=await mech_arena_admin_embed(self.guild),
+            view=MechArenaAdminView(self.bot, self.guild),
+        )
+
     @ui.button(label="📊 Activity & Health", style=discord.ButtonStyle.secondary, row=2)
     async def health(self, interaction: discord.Interaction, button: ui.Button):
         from bot.services.health_service import HealthService

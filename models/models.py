@@ -273,6 +273,47 @@ class BotMetadata(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
+class MechArenaSnapshot(Base):
+    """Immutable, validated source snapshot used by the grounded assistant."""
+
+    __tablename__ = "mech_arena_snapshots"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    source_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="approved")
+    records: Mapped[dict] = mapped_column(JSON, nullable=False)
+    snapshot_metadata: Mapped[dict] = mapped_column("metadata", JSON, default=dict, nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("source", "content_hash", name="uq_mech_arena_source_hash"),
+        Index("ix_mech_arena_source_status", "source", "status"),
+    )
+
+
+class MechArenaGuildSettings(Base):
+    __tablename__ = "mech_arena_guild_settings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("guilds.guild_id", ondelete="CASCADE"),
+        unique=True, nullable=False, index=True,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    question_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    website_refresh_on_query: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_question_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    updated_by: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class CommunitySettings(Base):
     __tablename__ = "community_settings"
 

@@ -431,6 +431,22 @@ class TeamManagementBot(commands.Bot):
 
     async def on_message(self, message: discord.Message):
         await self.pulse_service.handle_message(message)
+        if (
+            message.guild
+            and not message.author.bot
+            and self.user
+            and self.user in message.mentions
+        ):
+            from bot.services.mech_arena_service import MechArenaService
+            from bot.views.mech_arena import answer_message
+
+            guild_settings = await MechArenaService.ensure_guild_settings(message.guild.id)
+            if guild_settings.enabled:
+                question = message.content.replace(f"<@{self.user.id}>", "")
+                question = question.replace(f"<@!{self.user.id}>", "").strip()
+                if question:
+                    await answer_message(message, question)
+                    return
         await self.process_commands(message)
 
     async def close(self):

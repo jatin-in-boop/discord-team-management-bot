@@ -24,6 +24,21 @@ class Settings(BaseSettings):
     supabase_db_url: str | None = Field(default=None, alias="SUPABASE_DB_URL")
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
 
+    # Mech Arena grounded assistant
+    google_sheet_id: str | None = Field(default=None, alias="GOOGLE_SHEET_ID")
+    google_service_account_json: str | None = Field(
+        default=None, alias="GOOGLE_SERVICE_ACCOUNT_JSON"
+    )
+    groq_api_key_1: str | None = Field(default=None, alias="GROQ_API_KEY_1")
+    groq_api_key_2: str | None = Field(default=None, alias="GROQ_API_KEY_2")
+    groq_api_key_3: str | None = Field(default=None, alias="GROQ_API_KEY_3")
+    groq_api_key_4: str | None = Field(default=None, alias="GROQ_API_KEY_4")
+    groq_api_key_5: str | None = Field(default=None, alias="GROQ_API_KEY_5")
+    groq_api_key_6: str | None = Field(default=None, alias="GROQ_API_KEY_6")
+    mech_arena_poll_seconds: int = Field(default=900, alias="MECH_ARENA_POLL_SECONDS")
+    mech_arena_max_stale_seconds: int = Field(default=86400, alias="MECH_ARENA_MAX_STALE_SECONDS")
+    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
+
     # Bot metadata
     bot_version: str = Field(default="1.0.0", alias="BOT_VERSION")
     schema_version: int = Field(default=1, alias="SCHEMA_VERSION")
@@ -42,6 +57,19 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == Environment.PRODUCTION
+
+    @property
+    def groq_api_keys(self) -> list[str]:
+        return [
+            key for key in (
+                self.groq_api_key_1,
+                self.groq_api_key_2,
+                self.groq_api_key_3,
+                self.groq_api_key_4,
+                self.groq_api_key_5,
+                self.groq_api_key_6,
+            ) if key
+        ]
 
     @property
     def db_url(self) -> str:

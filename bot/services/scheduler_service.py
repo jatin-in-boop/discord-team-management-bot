@@ -36,6 +36,11 @@ class CommunityScheduler:
 
     async def tick(self) -> None:
         now = datetime.utcnow()
+        from bot.services.mech_arena_service import MechArenaService
+
+        # Source refreshes are global, read-only, and serialized internally.
+        # A failure is logged by the service and must not stop community jobs.
+        await MechArenaService.refresh_sources()
         await self.giveaway_service.expire_claims()
         for guild in self.bot.guilds:
             await self.pulse_service.refresh_leaderboard(guild)

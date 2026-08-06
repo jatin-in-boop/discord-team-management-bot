@@ -2,8 +2,36 @@ modules = ["python-base-3.13"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["libxcrypt", "postgresql"]
+packages = ["freetype", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "postgresql", "tcl", "tk", "zlib"]
 
 [[ports]]
 localPort = 8080
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+GOOGLE_SHEET_ID = "1hlmVV3N9S7wBaMpRdFdlw-VBDP6gjooxyCN7mZuIGaQ"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Discord Bot"
+
+[[workflows.workflow]]
+name = "Discord Bot"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = ".pythonlibs/bin/python main.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
