@@ -842,7 +842,12 @@ class GroqBroker:
             request = urllib.request.Request(
                 "https://api.groq.com/openai/v1/chat/completions",
                 data=body,
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "MechArenaBot/1.0",
+                },
                 method="POST",
             )
             try:
@@ -853,8 +858,10 @@ class GroqBroker:
                     return "I don't have enough reliable detail to answer that accurately right now."
                 return answer
             except urllib.error.HTTPError as exc:
-                if exc.code in {401, 429, 408, 409, 500, 502, 503, 504}:
-                    self._cooldowns[index] = time.monotonic() + (60 if exc.code == 429 else 10)
+                if exc.code in {401, 403, 408, 409, 429, 500, 502, 503, 504}:
+                    self._cooldowns[index] = time.monotonic() + (
+                        60 if exc.code == 429 else 30 if exc.code == 403 else 10
+                    )
                     continue
                 logger.warning("mech_arena.groq_request_failed", status=exc.code)
             except (urllib.error.URLError, TimeoutError, KeyError, ValueError):
