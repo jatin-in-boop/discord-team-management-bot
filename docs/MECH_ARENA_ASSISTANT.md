@@ -36,7 +36,10 @@ failures. Secret values are never logged or persisted.
 ## Discord use
 
 An administrator opens **Community Systems → Mech Arena AI**, refreshes sources,
-views freshness, and enables member questions. Members mention the bot with a
-question in a channel where the feature is enabled. Responses are grounded
-answers or deterministic calculation results; unsupported questions are not
-guessed.
+views freshness, and enables member questions. Members mention the bot with any
+Mech Arena question in a channel where the feature is enabled, such as asking
+what a mech or weapon does, comparing records, or requesting an upgrade cost.
+Responses are sent as ordinary Discord text messages, not embeds. Answers use
+fresh matching evidence when available; an unrelated stale source does not
+block a response, while a record found only in stale data is refused until that
+source is refreshed. Unsupported questions and calculations are not guessed.

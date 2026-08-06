@@ -393,23 +393,32 @@ class MechArenaService:
     async def evidence(cls, question: str) -> dict[str, Any]:
         sheet = await cls._latest("google_sheet")
         calculator = await cls._latest("calculator")
+        snapshots = {
+            "Google Sheet": sheet,
+            "Mech Arena Calculator": calculator,
+        }
         stale_sources = [
-            source for source, snapshot in (
-                ("Google Sheet", sheet),
-                ("Mech Arena Calculator", calculator),
-            )
+            source for source, snapshot in snapshots.items()
             if snapshot and not cls._is_fresh(snapshot)
         ]
-        if not cls._is_fresh(sheet):
-            sheet = None
-        if not cls._is_fresh(calculator):
-            calculator = None
+        # A stale source must not block a question that can be answered from a
+        # different, fresh source. Keep it available only long enough to detect
+        # whether the requested record exists exclusively in stale data.
+        fresh_sheet = sheet if cls._is_fresh(sheet) else None
+        fresh_calculator = calculator if cls._is_fresh(calculator) else None
         query = _name_key(question)
         terms = _query_terms(question)
         matches = []
-        if sheet:
+        stale_matches = []
+
+        def add_match(target: list[dict[str, Any]], match: dict[str, Any]) -> None:
+            target.append(match)
+
+        def collect_sheet_matches(snapshot: MechArenaSnapshot | None, target: list[dict[str, Any]]) -> None:
+            if not snapshot:
+                return
             candidate_rows = []
-            for sheet_name, rows in sheet.records.items():
+            for sheet_name, rows in snapshot.records.items():
                 for row in rows:
                     haystack = _name_key(" ".join(str(v) for v in row.values()))
                     row_values = [_name_key(v) for v in row.values()]
@@ -433,11 +442,14 @@ class MechArenaService:
                         candidate_rows.append((identity_match, sheet_name, row))
             narrowed = [item for item in candidate_rows if item[0]] or candidate_rows
             for _, sheet_name, row in narrowed:
-                        matches.append(
-                            {"source": "Google Sheet", "sheet": sheet_name, "record": row}
-                        )
-        if calculator:
-            assets = calculator.records.get("assets", {})
+                add_match(target, {"source": "Google Sheet", "sheet": sheet_name, "record": row})
+
+        def collect_calculator_matches(
+            snapshot: MechArenaSnapshot | None, target: list[dict[str, Any]]
+        ) -> None:
+            if not snapshot:
+                return
+            assets = snapshot.records.get("assets", {})
             calculator_items = []
             for item in (
                 assets.get("list.json", [])
@@ -455,7 +467,8 @@ class MechArenaService:
                 ):
                     calculator_items.append(item)
             for item in calculator_items:
-                matches.append(
+                add_match(
+                    target,
                     {
                         "source": "Mech Arena Calculator",
                         "asset": (
@@ -468,6 +481,15 @@ class MechArenaService:
                         "record": item,
                     }
                 )
+
+        collect_sheet_matches(fresh_sheet, matches)
+        collect_calculator_matches(fresh_calculator, matches)
+        collect_sheet_matches(sheet if sheet and sheet is not fresh_sheet else None, stale_matches)
+        collect_calculator_matches(
+            calculator if calculator and calculator is not fresh_calculator else None,
+            stale_matches,
+        )
+
         conflicts = []
         by_identity: dict[str, list[dict[str, Any]]] = {}
         for match in matches:
@@ -515,10 +537,16 @@ class MechArenaService:
         return {
             "matches": matches[:MAX_EVIDENCE_RECORDS],
             "conflicts": conflicts[:8],
-            "stale_sources": stale_sources,
+            "stale_sources": (
+                stale_sources
+                if not matches and stale_matches
+                else []
+            ),
             "sources": {
-                "Google Sheet": sheet.fetched_at.isoformat() if sheet else None,
-                "Mech Arena Calculator": calculator.fetched_at.isoformat() if calculator else None,
+                "Google Sheet": fresh_sheet.fetched_at.isoformat() if fresh_sheet else None,
+                "Mech Arena Calculator": (
+                    fresh_calculator.fetched_at.isoformat() if fresh_calculator else None
+                ),
             },
         }
 
@@ -616,7 +644,16 @@ class MechArenaService:
     @classmethod
     async def calculate_from_question(cls, question: str) -> tuple[bool, dict[str, Any]]:
         """Parse only explicit upgrade requests; never infer missing levels."""
-        if not any(word in question.lower() for word in ("upgrade", "cost")):
+        lowered = question.lower()
+        calculation_terms = (
+            "upgrade",
+            "cost",
+            "calculate",
+            "calculation",
+            "how much",
+            "total",
+        )
+        if not any(term in lowered for term in calculation_terms):
             return False, {}
         import re
 
@@ -637,7 +674,6 @@ class MechArenaService:
             for item in snapshot.records.get("assets", {}).get("mod_list.json", [])
             if isinstance(item, dict) and item.get("mod_label")
         ]
-        lowered = question.lower()
         item = max(
             (item for item in items if _clean(item["list"]).lower() in lowered),
             key=lambda value: len(_clean(value["list"])),
@@ -654,8 +690,16 @@ class MechArenaService:
             match = re.search(r"\bfrom\s+(\d+)\s+to\s+(\d+)\b", lowered)
             if match:
                 levels = [int(match.group(1)), int(match.group(2))]
-        if not item or len(levels) < 2:
-            return False, {}
+        if not item:
+            return True, {
+                "ok": False,
+                "message": "I need the exact mech, weapon, pilot, or mod name to calculate that.",
+            }
+        if len(levels) < 2:
+            return True, {
+                "ok": False,
+                "message": "Please provide both levels, for example: upgrade Panther from level 3 to 5.",
+            }
         star_match = re.search(r"\b(\d+)\s*(?:star|★)", lowered)
         return True, await cls.calculate_upgrade(
             _clean(item["list"]),

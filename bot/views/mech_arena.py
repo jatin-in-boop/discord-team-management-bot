@@ -9,6 +9,7 @@ from bot.services.mech_arena_service import MechArenaService, groq_broker
 from bot.services.permission_service import PermissionService
 
 logger = get_logger(__name__)
+MAX_DISCORD_MESSAGE_LENGTH = 2000
 
 
 def _calculation_text(result: dict) -> str:
@@ -31,6 +32,36 @@ def _calculation_text(result: dict) -> str:
     lines.extend(f"{labels[key]}: **{value:,}**" for key, value in total.items())
     lines.append(f"Source snapshot: `{result['source'][:19].replace('T', ' ')} UTC`")
     return "\n".join(lines)
+
+
+def _plain_response(title: str, body: str) -> str:
+    """Format a member-facing answer as ordinary Discord message text."""
+    content = f"{title}\n{body}".strip()
+    if len(content) <= MAX_DISCORD_MESSAGE_LENGTH:
+        return content
+    return content[: MAX_DISCORD_MESSAGE_LENGTH - 1].rstrip() + "…"
+
+
+def _stale_message(sources: list[str]) -> str:
+    return _plain_response(
+        "Verified data is stale",
+        "I cannot answer this question until these matching sources are refreshed: "
+        + ", ".join(sources),
+    )
+
+
+def _not_found_message() -> str:
+    return _plain_response(
+        "Not found in verified data",
+        "I could not find an exact supporting record, so I will not guess.",
+    )
+
+
+def _conflict_message() -> str:
+    return _plain_response(
+        "Conflicting verified records",
+        "The fresh sources disagree, so I will not choose a value.",
+    )
 
 
 def _format_status(status: dict) -> str:
@@ -170,17 +201,14 @@ class MechArenaQuestionModal(ui.Modal, title="Ask Mech Arena Assistant"):
 async def answer_question(interaction: discord.Interaction, question: str) -> None:
     if not interaction.guild:
         await interaction.response.send_message(
-            embed=EmbedBuilder.error("Server Only", "Use this assistant inside a server."),
+            content="Server only\nUse this assistant inside a server.",
             ephemeral=True,
         )
         return
     settings = await MechArenaService.ensure_guild_settings(interaction.guild.id)
     if not settings.enabled:
         await interaction.response.send_message(
-            embed=EmbedBuilder.warning(
-                "Assistant Disabled",
-                "An administrator must enable the Mech Arena assistant first.",
-            ),
+            content="Assistant disabled\nAn administrator must enable the Mech Arena assistant first.",
             ephemeral=True,
         )
         return
@@ -189,41 +217,31 @@ async def answer_question(interaction: discord.Interaction, question: str) -> No
     if attempted:
         if not result.get("ok"):
             await interaction.followup.send(
-                embed=EmbedBuilder.warning("Calculation Unavailable", result["message"]),
+                content=_plain_response("Calculation unavailable", result["message"]),
                 ephemeral=True,
             )
             return
         await interaction.followup.send(
-            embed=EmbedBuilder.info("Verified Upgrade Cost", _calculation_text(result)),
+            content=_plain_response("Verified upgrade cost", _calculation_text(result)),
             ephemeral=True,
         )
         return
     evidence = await MechArenaService.evidence(question)
     if evidence["stale_sources"]:
         await interaction.followup.send(
-            embed=EmbedBuilder.warning(
-                "Verified Data Is Stale",
-                "I cannot answer until these sources are refreshed: "
-                + ", ".join(evidence["stale_sources"]),
-            ),
+            content=_stale_message(evidence["stale_sources"]),
             ephemeral=True,
         )
         return
     if not evidence["matches"]:
         await interaction.followup.send(
-            embed=EmbedBuilder.warning(
-                "Not Found in Verified Data",
-                "I could not find an exact supporting record, so I will not guess.",
-            ),
+            content=_not_found_message(),
             ephemeral=True,
         )
         return
     if evidence["conflicts"]:
         await interaction.followup.send(
-            embed=EmbedBuilder.warning(
-                "Conflicting Verified Records",
-                "The available sources disagree, so I will not choose a value.",
-            ),
+            content=_conflict_message(),
             ephemeral=True,
         )
         return
@@ -234,7 +252,7 @@ async def answer_question(interaction: discord.Interaction, question: str) -> No
         if timestamp
     )
     await interaction.followup.send(
-        embed=EmbedBuilder.info("Mech Arena Assistant", answer[:4000]),
+        content=_plain_response("Mech Arena Assistant", answer),
         ephemeral=True,
     )
 
@@ -257,41 +275,31 @@ async def answer_message(message: discord.Message, question: str) -> None:
         if attempted:
             if not result.get("ok"):
                 await message.reply(
-                    embed=EmbedBuilder.warning("Calculation Unavailable", result["message"]),
+                    content=_plain_response("Calculation unavailable", result["message"]),
                     mention_author=False,
                 )
                 return
             await message.reply(
-                embed=EmbedBuilder.info("Verified Upgrade Cost", _calculation_text(result)),
+                content=_plain_response("Verified upgrade cost", _calculation_text(result)),
                 mention_author=False,
             )
             return
         evidence = await MechArenaService.evidence(question)
         if evidence["stale_sources"]:
             await message.reply(
-                embed=EmbedBuilder.warning(
-                    "Verified Data Is Stale",
-                    "I cannot answer until these sources are refreshed: "
-                    + ", ".join(evidence["stale_sources"]),
-                ),
+                content=_stale_message(evidence["stale_sources"]),
                 mention_author=False,
             )
             return
         if not evidence["matches"]:
             await message.reply(
-                embed=EmbedBuilder.warning(
-                    "Not Found in Verified Data",
-                    "I could not find an exact supporting record, so I will not guess.",
-                ),
+                content=_not_found_message(),
                 mention_author=False,
             )
             return
         if evidence["conflicts"]:
             await message.reply(
-                embed=EmbedBuilder.warning(
-                    "Conflicting Verified Records",
-                    "The available sources disagree, so I will not choose a value.",
-                ),
+                content=_conflict_message(),
                 mention_author=False,
             )
             return
@@ -302,6 +310,6 @@ async def answer_message(message: discord.Message, question: str) -> None:
             if timestamp
         )
         await message.reply(
-            embed=EmbedBuilder.info("Mech Arena Assistant", answer[:4000]),
+            content=_plain_response("Mech Arena Assistant", answer),
             mention_author=False,
         )
