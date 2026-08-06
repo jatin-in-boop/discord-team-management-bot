@@ -9,4 +9,5 @@
 - [GitHub push credentials](github-push-credentials.md) — GitHub helper auth may be unavailable, but the Replit GitHub token can push securely through ephemeral askpass.
 - [Mech Arena live sources](mech-arena-live-sources.md) — weapons share list and upgrade-cost assets; website freshness requires polling, hashes, and honest as-of timestamps.
 - [Mech Arena conversation style](mech-arena-conversation-style.md) — member replies should feel like normal chat while grounding only factual claims in selected source records.
+- [Groq request headers](groq-request-headers.md) — Groq’s edge rejects Python urllib’s default fingerprint; send an explicit normal User-Agent and JSON Accept header.
 - [Replit Python runtime limitation](replit-python-runtime-limitation.md) — this workspace’s immutable Python cannot install requirements locally; validate bot startup through the Docker/Railway path.
