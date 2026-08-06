@@ -38,7 +38,8 @@ failures. Secret values are never logged or persisted.
 An administrator opens **Community Systems → Mech Arena AI**, refreshes sources,
 views freshness, and enables member questions. Members mention the bot with any
 Mech Arena question in a channel where the feature is enabled, such as asking
-what a mech or weapon does, comparing records, or requesting an upgrade cost.
+what a mech or weapon does, sending only a name like `Panther` or `Revoker`,
+comparing records, or requesting an upgrade cost.
 Responses are sent as ordinary Discord text messages, not embeds. Answers use
 fresh matching evidence when available; an unrelated stale source does not
 block a response, while a record found only in stale data is refused until that
