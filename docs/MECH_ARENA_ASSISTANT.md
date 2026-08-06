@@ -27,7 +27,9 @@ Grok receives only records selected by the application. It is instructed not
 to create facts, and generated numeric claims are rejected when their numeric
 tokens are absent from the evidence. Upgrade totals are calculated in Python,
 not by the model. Missing levels, entities, or cost rows return a clear
-unavailable response.
+unavailable response. The member-facing answer is conversational: internal
+terms such as evidence, verification, snapshots, and conflicts are not shown
+unless a specific requested field genuinely has incompatible values.
 
 The six Groq keys are read only from Replit Secrets. Keys are rotated on a
 round-robin basis and temporarily cooled down after rate limits or transient
@@ -43,4 +45,5 @@ comparing records, or requesting an upgrade cost.
 Responses are sent as ordinary Discord text messages, not embeds. Answers use
 fresh matching evidence when available; an unrelated stale source does not
 block a response, while a record found only in stale data is refused until that
-source is refreshed. Unsupported questions and calculations are not guessed.
+source is refreshed. Compatible records are combined, and unsupported
+questions and calculations are not guessed.

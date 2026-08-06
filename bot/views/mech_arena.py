@@ -44,23 +44,24 @@ def _plain_response(title: str, body: str) -> str:
 
 def _stale_message(sources: list[str]) -> str:
     return _plain_response(
-        "Verified data is stale",
-        "I cannot answer this question until these matching sources are refreshed: "
-        + ", ".join(sources),
+        "I don't have a current answer for that yet.",
+        "That item is in an older data record, so I don't want to give you a "
+        "possibly outdated detail. Please try again after the next data refresh.",
     )
 
 
 def _not_found_message() -> str:
     return _plain_response(
-        "Not found in verified data",
-        "I could not find an exact supporting record, so I will not guess.",
+        "I don't have that detail right now.",
+        "I couldn't find that item or fact in my current Mech Arena data.",
     )
 
 
 def _conflict_message() -> str:
     return _plain_response(
-        "Conflicting verified records",
-        "The fresh sources disagree, so I will not choose a value.",
+        "I found two different values for that detail.",
+        "I don't want to pick one at random. Ask me about another detail and "
+        "I'll help with what I have.",
     )
 
 
@@ -222,7 +223,7 @@ async def answer_question(interaction: discord.Interaction, question: str) -> No
             )
             return
         await interaction.followup.send(
-            content=_plain_response("Verified upgrade cost", _calculation_text(result)),
+            content=_plain_response("Upgrade cost", _calculation_text(result)),
             ephemeral=True,
         )
         return
@@ -239,20 +240,9 @@ async def answer_question(interaction: discord.Interaction, question: str) -> No
             ephemeral=True,
         )
         return
-    if evidence["conflicts"]:
-        await interaction.followup.send(
-            content=_conflict_message(),
-            ephemeral=True,
-        )
-        return
     answer = await groq_broker.answer(question, evidence)
-    answer += "\n\n" + " · ".join(
-        f"{source}: {timestamp[:19].replace('T', ' ')} UTC"
-        for source, timestamp in evidence["sources"].items()
-        if timestamp
-    )
     await interaction.followup.send(
-        content=_plain_response("Mech Arena Assistant", answer),
+        content=_plain_response("", answer),
         ephemeral=True,
     )
 
@@ -280,7 +270,7 @@ async def answer_message(message: discord.Message, question: str) -> None:
                 )
                 return
             await message.reply(
-                content=_plain_response("Verified upgrade cost", _calculation_text(result)),
+                content=_plain_response("Upgrade cost", _calculation_text(result)),
                 mention_author=False,
             )
             return
@@ -297,19 +287,8 @@ async def answer_message(message: discord.Message, question: str) -> None:
                 mention_author=False,
             )
             return
-        if evidence["conflicts"]:
-            await message.reply(
-                content=_conflict_message(),
-                mention_author=False,
-            )
-            return
         answer = await groq_broker.answer(question, evidence)
-        answer += "\n\n" + " · ".join(
-            f"{source}: {timestamp[:19].replace('T', ' ')} UTC"
-            for source, timestamp in evidence["sources"].items()
-            if timestamp
-        )
         await message.reply(
-            content=_plain_response("Mech Arena Assistant", answer),
+            content=_plain_response("", answer),
             mention_author=False,
         )
