@@ -1,4 +1,4 @@
-- [Railway deployment access](railway-deployment.md) — Railway API authentication works, but the available token currently has no accessible projects.
+- [Railway deployment access](railway-deployment.md) — Railway API access works for the linked production project; variable writes need the backboard endpoint and may require retrying edge 403s.
 - [Uploaded asset hygiene](uploaded-asset-hygiene.md) — inspect Git history before pushing; workspace uploads may be auto-committed even when meant only as visual references.
 - [Guild Pulse cap semantics](guild-pulse-cap-semantics.md) — source daily caps are hard per-member limits; a configured zero means unlimited.
 - [Persistent Pulse interactions](persistent-pulse-interactions.md) — live leaderboard buttons require stable guild-specific custom IDs and startup view registration.
